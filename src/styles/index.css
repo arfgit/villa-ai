@@ -33,12 +33,66 @@
   }
 }
 
+@keyframes villa-sway {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes villa-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes villa-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes villa-bounce-talk {
+  0%, 100% { transform: translateY(0) scale(1.1); }
+  50% { transform: translateY(-3px) scale(1.12); }
+}
+
+@keyframes villa-water {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes villa-typewriter {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
 @layer utilities {
   .ascii {
     white-space: pre;
     line-height: 1.1;
     letter-spacing: 0;
     font-variant-ligatures: none;
+  }
+
+  .animate-villa-sway {
+    animation: villa-sway 2.4s ease-in-out infinite;
+  }
+
+  .animate-villa-shimmer {
+    animation: villa-shimmer 1.6s ease-in-out infinite;
+  }
+
+  .animate-villa-fadein {
+    animation: villa-fadein 0.4s ease-out;
+  }
+
+  .animate-villa-bounce-talk {
+    animation: villa-bounce-talk 0.6s ease-in-out infinite;
+  }
+
+  .animate-villa-water {
+    animation: villa-water 3s ease-in-out infinite;
+  }
+
+  .animate-villa-typewriter {
+    animation: villa-typewriter 0.8s steps(40) forwards;
   }
 
   .crt::after {

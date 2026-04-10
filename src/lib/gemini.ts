@@ -18,6 +18,8 @@ const MODELS = ['gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-fl
 export async function generateSceneFromGemini(prompt: string, validAgentIds: string[]): Promise<LlmSceneResponse> {
   const ai = getGenAI()
 
+  let lastError: unknown = null
+
   for (const modelName of MODELS) {
     try {
       const model = ai.getGenerativeModel({
@@ -31,12 +33,23 @@ export async function generateSceneFromGemini(prompt: string, validAgentIds: str
 
       const result = await model.generateContent(prompt)
       const text = result.response.text()
-      return parseAndValidate(text, validAgentIds)
+      try {
+        return parseAndValidate(text, validAgentIds)
+      } catch (parseErr) {
+        const detail = parseErr instanceof Error ? parseErr.message : ''
+        throw new Error(`The AI returned an invalid scene. ${detail}`.trim())
+      }
     } catch (err) {
-      const isLast = modelName === MODELS[MODELS.length - 1]
-      if (!isLast) continue
-
+      lastError = err
       const msg = err instanceof Error ? err.message : ''
+      const isTransient = msg.includes('429') || msg.includes('404') || msg.includes('500') || msg.includes('503') || msg.includes('overloaded')
+      const isLast = modelName === MODELS[MODELS.length - 1]
+
+      if (isTransient && !isLast) continue
+      if (!isTransient) {
+        throw err
+      }
+
       if (msg.includes('429')) {
         throw new Error('Rate limit reached. The free tier resets daily. Wait a moment and try again.')
       }
@@ -44,5 +57,5 @@ export async function generateSceneFromGemini(prompt: string, validAgentIds: str
     }
   }
 
-  throw new Error('All models failed')
+  throw lastError instanceof Error ? lastError : new Error('All models failed')
 }

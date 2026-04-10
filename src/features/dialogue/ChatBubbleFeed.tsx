@@ -10,10 +10,15 @@ interface Props {
 
 export default function ChatBubbleFeed({ lines, cast, currentLineIndex }: Props) {
   const bottomRef = useRef<HTMLDivElement>(null)
+  const currentRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [currentLineIndex])
+    if (currentRef.current) {
+      currentRef.current.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+    } else {
+      bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    }
+  }, [currentLineIndex, lines.length])
 
   if (lines.length === 0) {
     return (
@@ -23,20 +28,21 @@ export default function ChatBubbleFeed({ lines, cast, currentLineIndex }: Props)
     )
   }
 
-  const visible = lines.slice(0, currentLineIndex + 1)
-
   return (
     <div className="border border-villa-pink/30 bg-villa-bg-2/40 p-3 sm:p-4 space-y-2 overflow-y-auto scrollbar-thin">
-      {visible.map((line, idx) => {
+      {lines.map((line, idx) => {
         const agent = cast.find((a) => a.id === line.agentId)
         if (!agent) return null
+        const isCurrent = idx === currentLineIndex
         return (
-          <ChatBubble
+          <div
             key={line.id}
-            agent={agent}
-            line={line}
-            isCurrent={idx === currentLineIndex}
-          />
+            ref={isCurrent ? currentRef : undefined}
+            className="animate-villa-fadein"
+            style={{ animationDelay: `${idx * 30}ms` }}
+          >
+            <ChatBubble agent={agent} line={line} isCurrent={isCurrent} />
+          </div>
         )
       })}
       <div ref={bottomRef} />

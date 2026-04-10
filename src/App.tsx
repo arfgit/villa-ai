@@ -1,5 +1,7 @@
+import { useEffect } from 'react'
 import { useVillaStore } from '@/store/useVillaStore'
 import { useBreakpoint } from '@/lib/useBreakpoint'
+import { startMusic, stopMusic } from '@/lib/music'
 import EpisodeHeader from '@/features/episode/EpisodeHeader'
 import BottomActionBar from '@/features/episode/BottomActionBar'
 import SceneView from '@/features/scene/SceneView'
@@ -16,6 +18,14 @@ export default function App() {
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric)
 
   const bp = useBreakpoint()
+
+  useEffect(() => {
+    if (ui.musicEnabled) {
+      startMusic().catch(() => {})
+    } else {
+      stopMusic()
+    }
+  }, [ui.musicEnabled])
 
   return (
     <div className="h-[100dvh] flex flex-col bg-villa-bg crt">

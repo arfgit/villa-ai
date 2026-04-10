@@ -18,17 +18,19 @@ export default function AsciiStage({ sceneType, participants, speakingAgentId, e
   }
 
   return (
-    <div className="border border-villa-pink/30 bg-villa-bg-2/40 p-3 sm:p-4 overflow-hidden">
+    <div className="border border-villa-pink/30 bg-villa-bg-2/40 p-3 sm:p-4">
       <div className="text-[10px] uppercase tracking-widest text-villa-pink/70 mb-2 flex items-center gap-2">
         <span>{label.emoji}</span>
         <span>{label.title}</span>
       </div>
 
-      <pre className="ascii text-villa-dim text-[10px] sm:text-xs overflow-x-auto scrollbar-thin">
-        {env}
-      </pre>
+      <div className="overflow-x-auto scrollbar-thin -mx-1 px-1">
+        <pre className="ascii text-villa-dim text-[10px] sm:text-xs animate-villa-shimmer inline-block">
+          {env}
+        </pre>
+      </div>
 
-      <div className="mt-3 flex flex-wrap items-end justify-around gap-3 sm:gap-6 min-h-[80px]">
+      <div className="mt-3 flex flex-wrap items-end justify-around gap-3 sm:gap-6 min-h-[90px]">
         {participants.map((agent) => (
           <AgentAscii
             key={agent.id}

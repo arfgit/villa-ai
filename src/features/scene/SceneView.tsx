@@ -19,16 +19,18 @@ export default function SceneView() {
   if (!scene) {
     return (
       <div className="flex-1 flex items-center justify-center p-6">
-        <div className="text-center max-w-sm">
-          <pre className="ascii text-villa-pink text-xs mb-4">{`╔══════════════════╗
-║   VILLA   AI     ║
-║   - season 1 -   ║
-╚══════════════════╝`}</pre>
-          <p className="text-villa-dim text-xs">
-            {isGenerating ? 'generating opening scene...' : 'press [next scene] to begin the season'}
+        <div className="flex flex-col items-center max-w-sm">
+          <pre className="ascii text-villa-pink text-xs sm:text-sm mb-4 inline-block">{`╔════════════════════╗
+║                    ║
+║      VILLA AI      ║
+║    - season 1 -    ║
+║                    ║
+╚════════════════════╝`}</pre>
+          <p className="text-villa-dim text-xs text-center">
+            {isGenerating ? 'generating opening scene...' : 'press [▶ start show] to begin the season'}
           </p>
           {lastError && (
-            <p className="text-villa-love text-xs mt-3">{lastError}</p>
+            <p className="text-villa-love text-xs mt-3 text-center">{lastError}</p>
           )}
         </div>
       </div>
@@ -40,7 +42,7 @@ export default function SceneView() {
   const speakingAgentId = currentLine?.agentId
 
   return (
-    <div className="flex-1 flex flex-col gap-3 p-3 sm:p-4 overflow-y-auto scrollbar-thin">
+    <div className="flex-1 flex flex-col gap-3 p-3 sm:p-4 overflow-y-auto scrollbar-thin relative">
       <AsciiStage
         sceneType={scene.type}
         participants={participants}
@@ -63,9 +65,23 @@ export default function SceneView() {
       )}
 
       {currentLineIndex >= scene.dialogue.length - 1 && (
-        <div className="border border-villa-sun/40 bg-villa-sun/5 p-2 text-xs">
+        <div className="border border-villa-sun/40 bg-villa-sun/5 p-2 text-xs animate-villa-fadein">
           <span className="text-villa-sun uppercase tracking-wider">[outcome]</span>
           <span className="text-villa-ink ml-2">{scene.outcome}</span>
+        </div>
+      )}
+
+      {isGenerating && (
+        <div className="border border-villa-pink/60 bg-villa-bg-2/90 backdrop-blur p-3 text-xs flex items-center gap-2 animate-villa-fadein sticky bottom-0">
+          <span className="inline-block animate-spin text-villa-pink">◐</span>
+          <span className="text-villa-pink uppercase tracking-wider">writers room</span>
+          <span className="text-villa-ink">drafting next scene...</span>
+        </div>
+      )}
+
+      {lastError && (
+        <div className="border border-villa-love/60 bg-villa-love/10 p-2 text-xs text-villa-love animate-villa-fadein">
+          {lastError}
         </div>
       )}
     </div>

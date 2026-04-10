@@ -14,6 +14,8 @@ interface UiState {
   activeRelationshipMetric: RelationshipMetric
   autoPlay: boolean
   lineDelayMs: number
+  tooltipsEnabled: boolean
+  musicEnabled: boolean
 }
 
 interface VillaState {
@@ -34,6 +36,8 @@ interface VillaState {
   toggleRelationships: () => void
   setRelationshipMetric: (m: RelationshipMetric) => void
   selectScene: (sceneId: string) => void
+  toggleTooltips: () => void
+  toggleMusic: () => void
 }
 
 function createEpisode(): Episode {
@@ -50,6 +54,17 @@ function createEpisode(): Episode {
   }
 }
 
+function applyRelDelta(rels: Relationship[], a: string, b: string, type: 'trust_change' | 'attraction_change' | 'jealousy_spike', delta: number) {
+  const forward = rels.find((r) => r.fromId === a && r.toId === b)
+  const backward = rels.find((r) => r.fromId === b && r.toId === a)
+  for (const r of [forward, backward]) {
+    if (!r) continue
+    if (type === 'trust_change') r.trust = clamp(r.trust + delta)
+    if (type === 'attraction_change') r.attraction = clamp(r.attraction + delta)
+    if (type === 'jealousy_spike') r.jealousy = clamp(r.jealousy + Math.abs(delta))
+  }
+}
+
 function applyDeltas(
   rels: Relationship[],
   emotions: EmotionState[],
@@ -57,32 +72,25 @@ function applyDeltas(
   llm: LlmSceneResponse
 ): { rels: Relationship[]; emotions: EmotionState[]; couples: { a: string; b: string }[] } {
   const newRels = rels.map((r) => ({ ...r }))
-  const newCouples = [...couples]
+  let newCouples = couples.map((c) => ({ ...c }))
 
   for (const event of llm.systemEvents) {
     if (event.type === 'couple_formed' && event.fromId && event.toId) {
-      const exists = newCouples.some((c) =>
-        (c.a === event.fromId && c.b === event.toId) ||
-        (c.a === event.toId && c.b === event.fromId)
-      )
-      if (!exists) newCouples.push({ a: event.fromId, b: event.toId })
+      newCouples = newCouples.filter((c) => c.a !== event.fromId && c.b !== event.fromId && c.a !== event.toId && c.b !== event.toId)
+      newCouples.push({ a: event.fromId, b: event.toId })
       continue
     }
     if (event.type === 'couple_broken' && event.fromId && event.toId) {
-      const idx = newCouples.findIndex((c) =>
-        (c.a === event.fromId && c.b === event.toId) ||
-        (c.a === event.toId && c.b === event.fromId)
+      newCouples = newCouples.filter((c) =>
+        !((c.a === event.fromId && c.b === event.toId) || (c.a === event.toId && c.b === event.fromId))
       )
-      if (idx >= 0) newCouples.splice(idx, 1)
       continue
     }
 
     if (!event.fromId || !event.toId || event.delta === undefined) continue
-    const rel = newRels.find((r) => r.fromId === event.fromId && r.toId === event.toId)
-    if (!rel) continue
-    if (event.type === 'trust_change') rel.trust = clamp(rel.trust + event.delta)
-    if (event.type === 'attraction_change') rel.attraction = clamp(rel.attraction + event.delta)
-    if (event.type === 'jealousy_spike') rel.jealousy = clamp(rel.jealousy + Math.abs(event.delta))
+    if (event.type === 'trust_change' || event.type === 'attraction_change' || event.type === 'jealousy_spike') {
+      applyRelDelta(newRels, event.fromId, event.toId, event.type, event.delta)
+    }
   }
 
   const newEmotions = emotions.map((e) => ({ ...e }))
@@ -116,6 +124,8 @@ export const useVillaStore = create<VillaState>((set, get) => ({
     activeRelationshipMetric: 'attraction',
     autoPlay: false,
     lineDelayMs: 2200,
+    tooltipsEnabled: true,
+    musicEnabled: false,
   },
 
   startNewEpisode: () => {
@@ -128,25 +138,32 @@ export const useVillaStore = create<VillaState>((set, get) => ({
   },
 
   generateScene: async (type) => {
-    const state = get()
-    if (state.isGenerating) return
+    const initial = get()
+    if (initial.isGenerating) return
 
-    const sceneType = type ?? SCENE_ROTATION[state.episode.scenes.length % SCENE_ROTATION.length]!
+    const sceneType = type ?? SCENE_ROTATION[initial.episode.scenes.length % SCENE_ROTATION.length]!
     const sceneInfo = SCENE_LABELS[sceneType]
+    const generationEpisodeId = initial.episode.id
 
     set({ isGenerating: true, lastError: null })
 
     try {
       const prompt = buildScenePrompt({
-        cast: state.cast,
-        relationships: state.episode.relationships,
-        emotions: state.episode.emotions,
-        couples: state.episode.couples,
-        recentScenes: state.episode.scenes.slice(-3),
+        cast: initial.cast,
+        relationships: initial.episode.relationships,
+        emotions: initial.episode.emotions,
+        couples: initial.episode.couples,
+        recentScenes: initial.episode.scenes.slice(-3),
         sceneType,
       })
 
-      const llm = await generateSceneFromGemini(prompt, state.cast.map((a) => a.id))
+      const llm = await generateSceneFromGemini(prompt, initial.cast.map((a) => a.id))
+
+      const fresh = get()
+      if (fresh.episode.id !== generationEpisodeId) {
+        set({ isGenerating: false })
+        return
+      }
 
       const participantIds = Array.from(new Set(llm.dialogue.map((d) => d.agentId)))
 
@@ -176,16 +193,16 @@ export const useVillaStore = create<VillaState>((set, get) => ({
       }
 
       const { rels, emotions, couples } = applyDeltas(
-        state.episode.relationships,
-        state.episode.emotions,
-        state.episode.couples,
+        fresh.episode.relationships,
+        fresh.episode.emotions,
+        fresh.episode.couples,
         llm
       )
 
       set({
         episode: {
-          ...state.episode,
-          scenes: [...state.episode.scenes, scene],
+          ...fresh.episode,
+          scenes: [...fresh.episode.scenes, scene],
           relationships: rels,
           emotions,
           couples,
@@ -222,5 +239,14 @@ export const useVillaStore = create<VillaState>((set, get) => ({
 
   setRelationshipMetric: (m) => set((s) => ({ ui: { ...s.ui, activeRelationshipMetric: m } })),
 
-  selectScene: (sceneId) => set({ currentSceneId: sceneId, currentLineIndex: 0 }),
+  selectScene: (sceneId) => {
+    const state = get()
+    const scene = state.episode.scenes.find((s) => s.id === sceneId)
+    const lineIdx = scene ? Math.max(0, scene.dialogue.length - 1) : 0
+    set({ currentSceneId: sceneId, currentLineIndex: lineIdx })
+  },
+
+  toggleTooltips: () => set((s) => ({ ui: { ...s.ui, tooltipsEnabled: !s.ui.tooltipsEnabled } })),
+
+  toggleMusic: () => set((s) => ({ ui: { ...s.ui, musicEnabled: !s.ui.musicEnabled } })),
 }))
