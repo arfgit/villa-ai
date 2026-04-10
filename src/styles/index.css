@@ -1,0 +1,58 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-villa-bg: #0a0612;
+  --color-villa-bg-2: #130a20;
+  --color-villa-ink: #e8e2ff;
+  --color-villa-dim: #7a6f96;
+  --color-villa-pink: #ff6fb5;
+  --color-villa-sun: #ffb347;
+  --color-villa-aqua: #6be7ff;
+  --color-villa-love: #ff4d6d;
+  --color-villa-jealous: #b084ff;
+  --color-villa-trust: #6be7ff;
+}
+
+@layer base {
+  html, body, #root {
+    background: var(--color-villa-bg);
+    color: var(--color-villa-ink);
+    font-family: var(--font-mono);
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-villa-pink);
+    color: var(--color-villa-bg);
+  }
+}
+
+@layer utilities {
+  .ascii {
+    white-space: pre;
+    line-height: 1.1;
+    letter-spacing: 0;
+    font-variant-ligatures: none;
+  }
+
+  .crt::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom, transparent 0 2px, rgba(255,255,255,0.025) 2px 3px
+    );
+    z-index: 50;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--color-villa-dim); border-radius: 0; }
+}

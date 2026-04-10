@@ -1,0 +1,48 @@
+import { GoogleGenerativeAI } from '@google/generative-ai'
+import { parseAndValidate } from './schema'
+import type { LlmSceneResponse } from '@/types'
+
+let genAI: GoogleGenerativeAI | null = null
+
+function getGenAI(): GoogleGenerativeAI {
+  if (!genAI) {
+    const key = import.meta.env.VITE_GEMINI_API_KEY
+    if (!key) throw new Error('VITE_GEMINI_API_KEY not set in .env')
+    genAI = new GoogleGenerativeAI(key)
+  }
+  return genAI
+}
+
+const MODELS = ['gemini-2.0-flash-lite', 'gemini-2.5-flash-lite', 'gemini-2.5-flash']
+
+export async function generateSceneFromGemini(prompt: string, validAgentIds: string[]): Promise<LlmSceneResponse> {
+  const ai = getGenAI()
+
+  for (const modelName of MODELS) {
+    try {
+      const model = ai.getGenerativeModel({
+        model: modelName,
+        generationConfig: {
+          responseMimeType: 'application/json',
+          temperature: 0.95,
+          maxOutputTokens: 2048,
+        },
+      })
+
+      const result = await model.generateContent(prompt)
+      const text = result.response.text()
+      return parseAndValidate(text, validAgentIds)
+    } catch (err) {
+      const isLast = modelName === MODELS[MODELS.length - 1]
+      if (!isLast) continue
+
+      const msg = err instanceof Error ? err.message : ''
+      if (msg.includes('429')) {
+        throw new Error('Rate limit reached. The free tier resets daily. Wait a moment and try again.')
+      }
+      throw err
+    }
+  }
+
+  throw new Error('All models failed')
+}
