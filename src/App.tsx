@@ -1,7 +1,7 @@
 import { useEffect } from 'react'
 import { useVillaStore } from '@/store/useVillaStore'
 import { useBreakpoint } from '@/lib/useBreakpoint'
-import { startMusic, stopMusic } from '@/lib/music'
+import { changeTrack } from '@/lib/music'
 import EpisodeHeader from '@/features/episode/EpisodeHeader'
 import BottomActionBar from '@/features/episode/BottomActionBar'
 import SceneView from '@/features/scene/SceneView'
@@ -13,6 +13,7 @@ export default function App() {
   const cast = useVillaStore((s) => s.cast)
   const episode = useVillaStore((s) => s.episode)
   const ui = useVillaStore((s) => s.ui)
+  const currentSceneId = useVillaStore((s) => s.currentSceneId)
   const toggleCast = useVillaStore((s) => s.toggleCast)
   const toggleRelationships = useVillaStore((s) => s.toggleRelationships)
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric)
@@ -20,12 +21,13 @@ export default function App() {
   const bp = useBreakpoint()
 
   useEffect(() => {
-    if (ui.musicEnabled) {
-      startMusic().catch(() => {})
+    const scene = episode.scenes.find((s) => s.id === currentSceneId)
+    if (scene) {
+      changeTrack(scene.type)
     } else {
-      stopMusic()
+      changeTrack('menu')
     }
-  }, [ui.musicEnabled])
+  }, [currentSceneId, episode.scenes])
 
   return (
     <div className="h-[100dvh] flex flex-col bg-villa-bg crt">
@@ -34,7 +36,7 @@ export default function App() {
       {bp === 'desktop' ? (
         <div className="flex-1 grid grid-cols-[260px_1fr_320px] gap-3 p-3 overflow-hidden">
           <div className="overflow-hidden">
-            <CastList cast={cast} emotions={episode.emotions} couples={episode.couples} />
+            <CastList cast={cast} emotions={episode.emotions} couples={episode.couples} eliminatedIds={episode.eliminatedIds} winnerCouple={episode.winnerCouple} />
           </div>
           <div className="flex flex-col overflow-hidden">
             <SceneView />
@@ -45,6 +47,7 @@ export default function App() {
               relationships={episode.relationships}
               metric={ui.activeRelationshipMetric}
               onMetricChange={setRelationshipMetric}
+              eliminatedIds={episode.eliminatedIds}
             />
           </div>
         </div>
@@ -60,7 +63,7 @@ export default function App() {
       />
 
       <Drawer open={ui.isCastOpen} onClose={toggleCast} title="cast">
-        <CastList cast={cast} emotions={episode.emotions} couples={episode.couples} />
+        <CastList cast={cast} emotions={episode.emotions} couples={episode.couples} eliminatedIds={episode.eliminatedIds} winnerCouple={episode.winnerCouple} />
       </Drawer>
 
       <Drawer open={ui.isRelationshipsOpen} onClose={toggleRelationships} title="relationships">
@@ -69,6 +72,7 @@ export default function App() {
           relationships={episode.relationships}
           metric={ui.activeRelationshipMetric}
           onMetricChange={setRelationshipMetric}
+          eliminatedIds={episode.eliminatedIds}
         />
       </Drawer>
     </div>

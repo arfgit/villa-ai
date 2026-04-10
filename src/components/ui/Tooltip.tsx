@@ -1,25 +1,39 @@
-import { useState, useRef, useEffect } from 'react'
+import { useState, useRef, useEffect, cloneElement, isValidElement } from 'react'
+import type { ReactElement, Ref } from 'react'
 import { createPortal } from 'react-dom'
-import type { ReactNode } from 'react'
 import { useVillaStore } from '@/store/useVillaStore'
 
 interface Props {
-  children: ReactNode
+  children: ReactElement
   content: string
   side?: 'top' | 'bottom' | 'left' | 'right'
+}
+
+interface ChildProps {
+  ref?: Ref<HTMLElement>
+  onMouseEnter?: (e: React.MouseEvent) => void
+  onMouseLeave?: (e: React.MouseEvent) => void
+  onFocus?: (e: React.FocusEvent) => void
+  onBlur?: (e: React.FocusEvent) => void
 }
 
 export default function Tooltip({ children, content, side = 'top' }: Props) {
   const enabled = useVillaStore((s) => s.ui.tooltipsEnabled)
   const [show, setShow] = useState(false)
   const [coords, setCoords] = useState<{ top: number; left: number } | null>(null)
-  const triggerRef = useRef<HTMLSpanElement>(null)
+  const triggerRef = useRef<HTMLElement>(null)
+
+  useEffect(() => {
+    if (!enabled) setShow(false)
+  }, [enabled])
 
   useEffect(() => {
     if (!show || !enabled || !triggerRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
-    const tooltipWidth = 200
-    const tooltipHeight = 60
+    if (rect.width === 0 && rect.height === 0) return
+
+    const tooltipWidth = 220
+    const tooltipHeight = 64
     const margin = 8
 
     let top = 0
@@ -46,26 +60,43 @@ export default function Tooltip({ children, content, side = 'top' }: Props) {
     setCoords({ top, left })
   }, [show, side, enabled])
 
+  if (!isValidElement(children)) return <>{children}</>
+
+  const childProps = (children.props ?? {}) as ChildProps
+
+  const cloned = cloneElement(children as ReactElement<ChildProps>, {
+    ref: triggerRef,
+    onMouseEnter: (e: React.MouseEvent) => {
+      if (enabled) setShow(true)
+      childProps.onMouseEnter?.(e)
+    },
+    onMouseLeave: (e: React.MouseEvent) => {
+      setShow(false)
+      childProps.onMouseLeave?.(e)
+    },
+    onFocus: (e: React.FocusEvent) => {
+      if (enabled) setShow(true)
+      childProps.onFocus?.(e)
+    },
+    onBlur: (e: React.FocusEvent) => {
+      setShow(false)
+      childProps.onBlur?.(e)
+    },
+  })
+
   return (
-    <span
-      ref={triggerRef}
-      className="contents"
-      onMouseEnter={() => enabled && setShow(true)}
-      onMouseLeave={() => setShow(false)}
-      onFocus={() => enabled && setShow(true)}
-      onBlur={() => setShow(false)}
-    >
-      {children}
+    <>
+      {cloned}
       {enabled && show && coords && createPortal(
         <div
           role="tooltip"
-          className="fixed z-[9999] pointer-events-none border border-villa-pink bg-villa-bg text-villa-ink px-2.5 py-2 text-[11px] leading-snug w-[200px] shadow-2xl shadow-black/60 animate-villa-fadein"
+          className="fixed z-[9999] pointer-events-none border border-villa-pink bg-villa-bg text-villa-ink px-2.5 py-2 text-[11px] leading-snug w-[220px] shadow-2xl shadow-black/60 animate-villa-fadein"
           style={{ top: coords.top, left: coords.left }}
         >
           {content}
         </div>,
         document.body
       )}
-    </span>
+    </>
   )
 }

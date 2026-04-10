@@ -1,6 +1,7 @@
 import clsx from 'clsx'
 import { useVillaStore } from '@/store/useVillaStore'
 import { SCENE_LABELS } from '@/data/environments'
+import { startMusic, stopMusic } from '@/lib/music'
 import type { SceneType } from '@/types'
 import Tooltip from '@/components/ui/Tooltip'
 
@@ -20,6 +21,15 @@ export default function BottomActionBar({ onToggleCast, onToggleRelationships }:
   const toggleMusic = useVillaStore((s) => s.toggleMusic)
   const sceneCount = useVillaStore((s) => s.episode.scenes.length)
 
+  function handleMusicClick() {
+    if (musicEnabled) {
+      stopMusic()
+    } else {
+      startMusic().catch(() => {})
+    }
+    toggleMusic()
+  }
+
   return (
     <div className="border-t border-villa-pink/30 bg-villa-bg-2/60 backdrop-blur px-3 py-2 flex items-center gap-2 flex-wrap pb-[max(0.5rem,env(safe-area-inset-bottom))]">
       <Tooltip content="Generates the next scene by calling Gemini. Each scene contains 6 to 10 dialogue lines plus relationship and emotion changes." side="top">
@@ -27,25 +37,20 @@ export default function BottomActionBar({ onToggleCast, onToggleRelationships }:
           onClick={() => generateScene()}
           disabled={isGenerating}
           className={clsx(
-            'inline-flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs uppercase tracking-widest border cursor-pointer leading-none',
+            'inline-flex items-center justify-center gap-2 px-3 py-2 text-xs uppercase tracking-widest border cursor-pointer leading-none',
             'border-villa-pink text-villa-pink hover:bg-villa-pink hover:text-villa-bg',
             'disabled:opacity-40 disabled:cursor-not-allowed'
           )}
         >
           {isGenerating ? (
             <>
-              <span className="animate-spin">◐</span>
+              <span className="inline-block animate-spin">◐</span>
               <span>generating</span>
-            </>
-          ) : sceneCount === 0 ? (
-            <>
-              <span className="text-[10px]">▶</span>
-              <span>start show</span>
             </>
           ) : (
             <>
-              <span className="text-[10px]">▶</span>
-              <span>next scene</span>
+              <span className="inline-block w-0 h-0 border-l-[6px] border-l-current border-y-[4px] border-y-transparent" aria-hidden="true" />
+              <span>{sceneCount === 0 ? 'start show' : 'next scene'}</span>
             </>
           )}
         </button>
@@ -81,7 +86,7 @@ export default function BottomActionBar({ onToggleCast, onToggleRelationships }:
 
       <Tooltip content="Background 8 bit chiptune to set the villa mood." side="top">
         <button
-          onClick={toggleMusic}
+          onClick={handleMusicClick}
           className={clsx(
             'inline-flex items-center px-2 py-1.5 text-[10px] uppercase border cursor-pointer leading-none',
             musicEnabled ? 'border-villa-sun text-villa-sun' : 'border-villa-dim/40 text-villa-dim hover:border-villa-dim'

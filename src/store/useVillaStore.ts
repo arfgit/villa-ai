@@ -49,20 +49,20 @@ function createEpisode(): Episode {
     relationships: buildSeedRelationships(),
     emotions: buildSeedEmotions(),
     couples: [],
+    eliminatedIds: [],
+    unpairedStreak: {},
+    winnerCouple: null,
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
 }
 
-function applyRelDelta(rels: Relationship[], a: string, b: string, type: 'trust_change' | 'attraction_change' | 'jealousy_spike', delta: number) {
-  const forward = rels.find((r) => r.fromId === a && r.toId === b)
-  const backward = rels.find((r) => r.fromId === b && r.toId === a)
-  for (const r of [forward, backward]) {
-    if (!r) continue
-    if (type === 'trust_change') r.trust = clamp(r.trust + delta)
-    if (type === 'attraction_change') r.attraction = clamp(r.attraction + delta)
-    if (type === 'jealousy_spike') r.jealousy = clamp(r.jealousy + Math.abs(delta))
-  }
+function applyRelDelta(rels: Relationship[], from: string, to: string, type: 'trust_change' | 'attraction_change' | 'jealousy_spike', delta: number) {
+  const r = rels.find((x) => x.fromId === from && x.toId === to)
+  if (!r) return
+  if (type === 'trust_change') r.trust = clamp(r.trust + delta)
+  if (type === 'attraction_change') r.attraction = clamp(r.attraction + delta)
+  if (type === 'jealousy_spike') r.jealousy = clamp(r.jealousy + Math.abs(delta))
 }
 
 function applyDeltas(
@@ -108,6 +108,72 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n))
 }
 
+const UNPAIRED_LIMIT = 2
+
+function applyEliminations(
+  cast: typeof CAST,
+  couples: { a: string; b: string }[],
+  eliminatedIds: string[],
+  unpairedStreak: Record<string, number>,
+  sceneType: SceneType
+): {
+  eliminatedIds: string[]
+  unpairedStreak: Record<string, number>
+  couples: { a: string; b: string }[]
+  winnerCouple: { a: string; b: string } | null
+} {
+  const newEliminated = [...eliminatedIds]
+  const newStreak = { ...unpairedStreak }
+  let activeCouples = couples.filter(
+    (c) => !newEliminated.includes(c.a) && !newEliminated.includes(c.b)
+  )
+
+  const activeAgents = cast.filter((a) => !newEliminated.includes(a.id))
+
+  for (const agent of activeAgents) {
+    const inCouple = activeCouples.some((c) => c.a === agent.id || c.b === agent.id)
+    if (inCouple) {
+      newStreak[agent.id] = 0
+    } else {
+      newStreak[agent.id] = (newStreak[agent.id] ?? 0) + 1
+    }
+  }
+
+  if (sceneType === 'recouple') {
+    for (const agent of activeAgents) {
+      const inCouple = activeCouples.some((c) => c.a === agent.id || c.b === agent.id)
+      if (!inCouple && !newEliminated.includes(agent.id)) {
+        newEliminated.push(agent.id)
+        delete newStreak[agent.id]
+      }
+    }
+  } else {
+    for (const agent of activeAgents) {
+      if ((newStreak[agent.id] ?? 0) >= UNPAIRED_LIMIT && !newEliminated.includes(agent.id)) {
+        newEliminated.push(agent.id)
+        delete newStreak[agent.id]
+      }
+    }
+  }
+
+  activeCouples = couples.filter(
+    (c) => !newEliminated.includes(c.a) && !newEliminated.includes(c.b)
+  )
+
+  const remainingActive = cast.filter((a) => !newEliminated.includes(a.id))
+  let winnerCouple: { a: string; b: string } | null = null
+  if (remainingActive.length === 2 && activeCouples.length === 1) {
+    winnerCouple = activeCouples[0]!
+  }
+
+  return {
+    eliminatedIds: newEliminated,
+    unpairedStreak: newStreak,
+    couples: activeCouples,
+    winnerCouple,
+  }
+}
+
 const SCENE_ROTATION: SceneType[] = ['firepit', 'pool', 'kitchen', 'bedroom', 'date', 'challenge', 'recouple']
 
 export const useVillaStore = create<VillaState>((set, get) => ({
@@ -140,6 +206,10 @@ export const useVillaStore = create<VillaState>((set, get) => ({
   generateScene: async (type) => {
     const initial = get()
     if (initial.isGenerating) return
+    if (initial.episode.winnerCouple) return
+
+    const activeCast = initial.cast.filter((a) => !initial.episode.eliminatedIds.includes(a.id))
+    if (activeCast.length < 2) return
 
     const sceneType = type ?? SCENE_ROTATION[initial.episode.scenes.length % SCENE_ROTATION.length]!
     const sceneInfo = SCENE_LABELS[sceneType]
@@ -149,7 +219,7 @@ export const useVillaStore = create<VillaState>((set, get) => ({
 
     try {
       const prompt = buildScenePrompt({
-        cast: initial.cast,
+        cast: activeCast,
         relationships: initial.episode.relationships,
         emotions: initial.episode.emotions,
         couples: initial.episode.couples,
@@ -157,7 +227,7 @@ export const useVillaStore = create<VillaState>((set, get) => ({
         sceneType,
       })
 
-      const llm = await generateSceneFromGemini(prompt, initial.cast.map((a) => a.id))
+      const llm = await generateSceneFromGemini(prompt, activeCast.map((a) => a.id))
 
       const fresh = get()
       if (fresh.episode.id !== generationEpisodeId) {
@@ -199,13 +269,24 @@ export const useVillaStore = create<VillaState>((set, get) => ({
         llm
       )
 
+      const elim = applyEliminations(
+        fresh.cast,
+        couples,
+        fresh.episode.eliminatedIds,
+        fresh.episode.unpairedStreak,
+        sceneType
+      )
+
       set({
         episode: {
           ...fresh.episode,
           scenes: [...fresh.episode.scenes, scene],
           relationships: rels,
           emotions,
-          couples,
+          couples: elim.couples,
+          eliminatedIds: elim.eliminatedIds,
+          unpairedStreak: elim.unpairedStreak,
+          winnerCouple: elim.winnerCouple,
           updatedAt: Date.now(),
         },
         currentSceneId: scene.id,

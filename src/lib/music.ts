@@ -1,78 +1,214 @@
+import type { SceneType } from '@/types'
+
 let ctx: AudioContext | null = null
 let masterGain: GainNode | null = null
 let isPlaying = false
 let scheduledTimer: number | null = null
-let nextNoteTime = 0
-let currentStep = 0
+let resetTimer: number | null = null
+let nextBassTime = 0
+let nextLeadTime = 0
+let nextDrumTime = 0
+let bassStep = 0
+let leadStep = 0
+let drumStep = 0
+let currentTrack: SceneType | 'menu' = 'menu'
 
-const TEMPO_BPM = 96
-const SECONDS_PER_BEAT = 60 / TEMPO_BPM
+const TEMPO_BPM = 100
 const STEPS_PER_BEAT = 4
-const SECONDS_PER_STEP = SECONDS_PER_BEAT / STEPS_PER_BEAT
-const SCHEDULE_AHEAD = 0.12
+const SCHEDULE_AHEAD = 0.15
+const MASTER_VOLUME = 0.07
+const FADE_IN_MS = 800
+const FADE_OUT_MS = 600
 
-const MELODY: Array<{ note: number | null; dur: number }> = [
-  { note: 65.41, dur: 2 },  // C2
-  { note: 82.41, dur: 1 },  // E2
-  { note: 98.00, dur: 1 },  // G2
-  { note: 130.81, dur: 2 }, // C3
-  { note: 98.00, dur: 1 },
-  { note: 82.41, dur: 1 },
-  { note: 73.42, dur: 2 },  // D2
-  { note: 87.31, dur: 1 },  // F2
-  { note: 110.00, dur: 1 }, // A2
-  { note: 146.83, dur: 2 }, // D3
-  { note: 110.00, dur: 1 },
-  { note: 87.31, dur: 1 },
-  { note: 87.31, dur: 2 },  // F2
-  { note: 110.00, dur: 1 },
-  { note: 130.81, dur: 1 },
-  { note: 174.61, dur: 2 }, // F3
-  { note: 130.81, dur: 1 },
-  { note: 110.00, dur: 1 },
-  { note: 98.00, dur: 2 },  // G2
-  { note: 130.81, dur: 1 },
-  { note: 164.81, dur: 1 }, // E3
-  { note: 196.00, dur: 2 }, // G3
-  { note: 164.81, dur: 1 },
-  { note: 130.81, dur: 1 },
-]
+interface Note {
+  freq: number | null
+  dur: number
+}
 
-const LEAD: Array<{ note: number | null; dur: number }> = [
-  { note: 523.25, dur: 2 }, // C5
-  { note: null, dur: 2 },
-  { note: 659.25, dur: 1 }, // E5
-  { note: 783.99, dur: 1 }, // G5
-  { note: 523.25, dur: 2 },
-  { note: null, dur: 2 },
-  { note: 587.33, dur: 2 }, // D5
-  { note: null, dur: 2 },
-  { note: 698.46, dur: 1 }, // F5
-  { note: 880.00, dur: 1 }, // A5
-  { note: 587.33, dur: 2 },
-  { note: null, dur: 2 },
-  { note: 698.46, dur: 4 },
-  { note: 880.00, dur: 2 },
-  { note: 1046.50, dur: 2 }, // C6
-  { note: 783.99, dur: 4 },
-  { note: 659.25, dur: 2 },
-  { note: 783.99, dur: 2 },
-]
+interface Track {
+  bass: Note[]
+  lead: Note[]
+  drumPattern: ('kick' | 'snare' | 'hat' | null)[]
+  bassWave: OscillatorType
+  leadWave: OscillatorType
+  bpm?: number
+}
+
+const FREQS = {
+  C2: 65.41, D2: 73.42, E2: 82.41, F2: 87.31, G2: 98.00, A2: 110.00, B2: 123.47,
+  C3: 130.81, D3: 146.83, E3: 164.81, F3: 174.61, G3: 196.00, A3: 220.00, B3: 246.94,
+  C4: 261.63, D4: 293.66, E4: 329.63, F4: 349.23, G4: 392.00, A4: 440.00, B4: 493.88,
+  C5: 523.25, D5: 587.33, E5: 659.25, F5: 698.46, G5: 783.99, A5: 880.00, B5: 987.77,
+  C6: 1046.50, D6: 1174.66, E6: 1318.51,
+}
+
+const TRACKS: Record<SceneType | 'menu', Track> = {
+  menu: {
+    bassWave: 'triangle',
+    leadWave: 'square',
+    bass: [
+      { freq: FREQS.C2, dur: 2 }, { freq: FREQS.G2, dur: 2 },
+      { freq: FREQS.A2, dur: 2 }, { freq: FREQS.E2, dur: 2 },
+      { freq: FREQS.F2, dur: 2 }, { freq: FREQS.C2, dur: 2 },
+    ],
+    lead: [
+      { freq: FREQS.E5, dur: 2 }, { freq: FREQS.G5, dur: 2 },
+      { freq: FREQS.A5, dur: 4 },
+      { freq: FREQS.G5, dur: 2 }, { freq: FREQS.E5, dur: 2 },
+      { freq: FREQS.D5, dur: 4 },
+    ],
+    drumPattern: ['kick', null, 'hat', null, 'snare', null, 'hat', null],
+  },
+
+  firepit: {
+    bassWave: 'triangle',
+    leadWave: 'square',
+    bass: [
+      { freq: FREQS.A2, dur: 4 }, { freq: FREQS.E2, dur: 4 },
+      { freq: FREQS.F2, dur: 4 }, { freq: FREQS.C2, dur: 4 },
+      { freq: FREQS.D2, dur: 4 }, { freq: FREQS.A2, dur: 4 },
+    ],
+    lead: [
+      { freq: FREQS.A4, dur: 2 }, { freq: FREQS.C5, dur: 2 },
+      { freq: FREQS.E5, dur: 4 },
+      { freq: null, dur: 2 }, { freq: FREQS.D5, dur: 2 },
+      { freq: FREQS.C5, dur: 4 },
+      { freq: FREQS.A4, dur: 2 }, { freq: FREQS.B4, dur: 2 },
+      { freq: FREQS.A4, dur: 4 },
+    ],
+    drumPattern: ['kick', null, null, null, 'hat', null, null, null, 'kick', null, 'snare', null, 'hat', null, null, null],
+  },
+
+  pool: {
+    bassWave: 'square',
+    leadWave: 'triangle',
+    bass: [
+      { freq: FREQS.C3, dur: 1 }, { freq: FREQS.C3, dur: 1 },
+      { freq: FREQS.G2, dur: 1 }, { freq: FREQS.G2, dur: 1 },
+      { freq: FREQS.A2, dur: 1 }, { freq: FREQS.A2, dur: 1 },
+      { freq: FREQS.F2, dur: 1 }, { freq: FREQS.F2, dur: 1 },
+    ],
+    lead: [
+      { freq: FREQS.E5, dur: 1 }, { freq: FREQS.G5, dur: 1 }, { freq: FREQS.C6, dur: 2 },
+      { freq: FREQS.B5, dur: 1 }, { freq: FREQS.A5, dur: 1 }, { freq: FREQS.G5, dur: 2 },
+      { freq: FREQS.E5, dur: 1 }, { freq: FREQS.G5, dur: 1 }, { freq: FREQS.A5, dur: 2 },
+      { freq: FREQS.G5, dur: 1 }, { freq: FREQS.F5, dur: 1 }, { freq: FREQS.E5, dur: 2 },
+    ],
+    drumPattern: ['kick', 'hat', 'snare', 'hat', 'kick', 'hat', 'snare', 'hat'],
+    bpm: 120,
+  },
+
+  kitchen: {
+    bassWave: 'triangle',
+    leadWave: 'sine',
+    bass: [
+      { freq: FREQS.F2, dur: 4 }, { freq: FREQS.A2, dur: 4 },
+      { freq: FREQS.G2, dur: 4 }, { freq: FREQS.C3, dur: 4 },
+    ],
+    lead: [
+      { freq: FREQS.F5, dur: 2 }, { freq: FREQS.A5, dur: 2 },
+      { freq: FREQS.C6, dur: 4 },
+      { freq: FREQS.B5, dur: 2 }, { freq: FREQS.A5, dur: 2 },
+      { freq: FREQS.G5, dur: 4 },
+      { freq: FREQS.F5, dur: 2 }, { freq: FREQS.E5, dur: 2 },
+      { freq: FREQS.D5, dur: 4 },
+    ],
+    drumPattern: ['kick', null, 'hat', null, 'snare', null, 'hat', null],
+  },
+
+  bedroom: {
+    bassWave: 'sine',
+    leadWave: 'triangle',
+    bass: [
+      { freq: FREQS.D2, dur: 8 },
+      { freq: FREQS.A2, dur: 8 },
+      { freq: FREQS.F2, dur: 8 },
+      { freq: FREQS.C2, dur: 8 },
+    ],
+    lead: [
+      { freq: FREQS.D5, dur: 4 }, { freq: FREQS.F5, dur: 4 },
+      { freq: FREQS.A5, dur: 8 },
+      { freq: FREQS.G5, dur: 4 }, { freq: FREQS.F5, dur: 4 },
+      { freq: FREQS.E5, dur: 8 },
+    ],
+    drumPattern: ['kick', null, null, null, null, null, null, null, 'snare', null, null, null, null, null, null, null],
+    bpm: 70,
+  },
+
+  recouple: {
+    bassWave: 'sawtooth',
+    leadWave: 'square',
+    bass: [
+      { freq: FREQS.A2, dur: 2 }, { freq: FREQS.A2, dur: 2 },
+      { freq: FREQS.F2, dur: 2 }, { freq: FREQS.F2, dur: 2 },
+      { freq: FREQS.G2, dur: 2 }, { freq: FREQS.G2, dur: 2 },
+      { freq: FREQS.E2, dur: 2 }, { freq: FREQS.E2, dur: 2 },
+    ],
+    lead: [
+      { freq: FREQS.A4, dur: 2 }, { freq: FREQS.C5, dur: 2 },
+      { freq: FREQS.E5, dur: 4 },
+      { freq: FREQS.F5, dur: 2 }, { freq: FREQS.E5, dur: 2 },
+      { freq: FREQS.D5, dur: 4 },
+      { freq: FREQS.C5, dur: 2 }, { freq: FREQS.B4, dur: 2 },
+      { freq: FREQS.A4, dur: 4 },
+    ],
+    drumPattern: ['kick', null, 'snare', null, 'kick', 'kick', 'snare', null, 'kick', null, 'snare', 'hat', 'kick', 'kick', 'snare', null],
+    bpm: 84,
+  },
+
+  date: {
+    bassWave: 'sine',
+    leadWave: 'triangle',
+    bass: [
+      { freq: FREQS.G2, dur: 4 }, { freq: FREQS.E2, dur: 4 },
+      { freq: FREQS.A2, dur: 4 }, { freq: FREQS.D2, dur: 4 },
+    ],
+    lead: [
+      { freq: FREQS.B4, dur: 2 }, { freq: FREQS.D5, dur: 2 },
+      { freq: FREQS.G5, dur: 4 },
+      { freq: FREQS.F5, dur: 2 }, { freq: FREQS.E5, dur: 2 },
+      { freq: FREQS.D5, dur: 4 },
+      { freq: FREQS.A4, dur: 2 }, { freq: FREQS.C5, dur: 2 },
+      { freq: FREQS.B4, dur: 4 },
+    ],
+    drumPattern: ['kick', null, null, null, 'hat', null, null, null],
+    bpm: 80,
+  },
+
+  challenge: {
+    bassWave: 'square',
+    leadWave: 'sawtooth',
+    bass: [
+      { freq: FREQS.E2, dur: 1 }, { freq: FREQS.E2, dur: 1 }, { freq: FREQS.E2, dur: 1 }, { freq: FREQS.G2, dur: 1 },
+      { freq: FREQS.A2, dur: 1 }, { freq: FREQS.A2, dur: 1 }, { freq: FREQS.A2, dur: 1 }, { freq: FREQS.B2, dur: 1 },
+      { freq: FREQS.C3, dur: 1 }, { freq: FREQS.C3, dur: 1 }, { freq: FREQS.B2, dur: 1 }, { freq: FREQS.A2, dur: 1 },
+      { freq: FREQS.G2, dur: 1 }, { freq: FREQS.A2, dur: 1 }, { freq: FREQS.B2, dur: 1 }, { freq: FREQS.E2, dur: 1 },
+    ],
+    lead: [
+      { freq: FREQS.E5, dur: 1 }, { freq: FREQS.G5, dur: 1 }, { freq: FREQS.B5, dur: 1 }, { freq: FREQS.E6, dur: 1 },
+      { freq: FREQS.D6, dur: 1 }, { freq: FREQS.B5, dur: 1 }, { freq: FREQS.G5, dur: 1 }, { freq: FREQS.E5, dur: 1 },
+      { freq: FREQS.A5, dur: 1 }, { freq: FREQS.B5, dur: 1 }, { freq: FREQS.C6, dur: 1 }, { freq: FREQS.B5, dur: 1 },
+      { freq: FREQS.A5, dur: 1 }, { freq: FREQS.G5, dur: 1 }, { freq: FREQS.F5, dur: 1 }, { freq: FREQS.E5, dur: 1 },
+    ],
+    drumPattern: ['kick', 'hat', 'snare', 'hat', 'kick', 'hat', 'snare', 'hat', 'kick', 'kick', 'snare', 'hat', 'kick', 'hat', 'snare', 'kick'],
+    bpm: 140,
+  },
+}
 
 function ensureContext(): AudioContext {
   if (!ctx) {
     ctx = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)()
     masterGain = ctx.createGain()
-    masterGain.gain.value = 0.08
+    masterGain.gain.value = 0
     masterGain.connect(ctx.destination)
   }
   return ctx
 }
 
-function playSquareNote(freq: number, startTime: number, duration: number, gain: number = 0.6) {
+function playNote(type: OscillatorType, freq: number, startTime: number, duration: number, gain: number) {
   if (!ctx || !masterGain) return
   const osc = ctx.createOscillator()
-  osc.type = 'square'
+  osc.type = type
   osc.frequency.setValueAtTime(freq, startTime)
 
   const env = ctx.createGain()
@@ -83,78 +219,178 @@ function playSquareNote(freq: number, startTime: number, duration: number, gain:
 
   osc.connect(env)
   env.connect(masterGain)
+  osc.onended = () => {
+    osc.disconnect()
+    env.disconnect()
+  }
   osc.start(startTime)
   osc.stop(startTime + duration + 0.05)
 }
 
-function playTriangleNote(freq: number, startTime: number, duration: number, gain: number = 0.4) {
+function playDrum(kind: 'kick' | 'snare' | 'hat', startTime: number) {
   if (!ctx || !masterGain) return
-  const osc = ctx.createOscillator()
-  osc.type = 'triangle'
-  osc.frequency.setValueAtTime(freq, startTime)
 
-  const env = ctx.createGain()
-  env.gain.setValueAtTime(0, startTime)
-  env.gain.linearRampToValueAtTime(gain, startTime + 0.02)
-  env.gain.exponentialRampToValueAtTime(0.001, startTime + duration)
+  if (kind === 'kick') {
+    const osc = ctx.createOscillator()
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(120, startTime)
+    osc.frequency.exponentialRampToValueAtTime(40, startTime + 0.12)
+    const env = ctx.createGain()
+    env.gain.setValueAtTime(0.5, startTime)
+    env.gain.exponentialRampToValueAtTime(0.001, startTime + 0.15)
+    osc.connect(env)
+    env.connect(masterGain)
+    osc.onended = () => { osc.disconnect(); env.disconnect() }
+    osc.start(startTime)
+    osc.stop(startTime + 0.2)
+  } else if (kind === 'snare') {
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.1, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length)
+    const noise = ctx.createBufferSource()
+    noise.buffer = buffer
+    const env = ctx.createGain()
+    env.gain.setValueAtTime(0.3, startTime)
+    env.gain.exponentialRampToValueAtTime(0.001, startTime + 0.1)
+    noise.connect(env)
+    env.connect(masterGain)
+    noise.onended = () => { noise.disconnect(); env.disconnect() }
+    noise.start(startTime)
+  } else {
+    const buffer = ctx.createBuffer(1, ctx.sampleRate * 0.05, ctx.sampleRate)
+    const data = buffer.getChannelData(0)
+    for (let i = 0; i < data.length; i++) data[i] = (Math.random() * 2 - 1) * (1 - i / data.length)
+    const noise = ctx.createBufferSource()
+    noise.buffer = buffer
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'highpass'
+    filter.frequency.value = 6000
+    const env = ctx.createGain()
+    env.gain.setValueAtTime(0.12, startTime)
+    env.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04)
+    noise.connect(filter)
+    filter.connect(env)
+    env.connect(masterGain)
+    noise.onended = () => { noise.disconnect(); filter.disconnect(); env.disconnect() }
+    noise.start(startTime)
+  }
+}
 
-  osc.connect(env)
-  env.connect(masterGain)
-  osc.start(startTime)
-  osc.stop(startTime + duration + 0.05)
+function getStepDuration(): number {
+  const track = TRACKS[currentTrack]
+  const bpm = track.bpm ?? TEMPO_BPM
+  return (60 / bpm) / STEPS_PER_BEAT
 }
 
 function scheduleNotes() {
-  if (!ctx) return
+  if (!ctx || !isPlaying) return
+  const track = TRACKS[currentTrack]
+  const stepDur = getStepDuration()
+  const horizon = ctx.currentTime + SCHEDULE_AHEAD
 
-  while (nextNoteTime < ctx.currentTime + SCHEDULE_AHEAD) {
-    const bassIdx = currentStep % MELODY.length
-    const bassNote = MELODY[bassIdx]
-    const leadIdx = currentStep % LEAD.length
-    const leadNote = LEAD[leadIdx]
-
-    if (bassNote && bassNote.note !== null) {
-      playTriangleNote(bassNote.note, nextNoteTime, SECONDS_PER_STEP * bassNote.dur, 0.5)
+  while (nextBassTime < horizon) {
+    const note = track.bass[bassStep % track.bass.length]!
+    if (note.freq !== null) {
+      playNote(track.bassWave, note.freq, nextBassTime, stepDur * note.dur, 0.5)
     }
-    if (leadNote && leadNote.note !== null) {
-      playSquareNote(leadNote.note, nextNoteTime, SECONDS_PER_STEP * leadNote.dur * 0.95, 0.35)
-    }
-
-    const stepDur = bassNote?.dur ?? 1
-    nextNoteTime += SECONDS_PER_STEP * stepDur
-    currentStep += stepDur
+    nextBassTime += stepDur * note.dur
+    bassStep++
   }
 
-  if (isPlaying) {
-    scheduledTimer = window.setTimeout(scheduleNotes, 25)
+  while (nextLeadTime < horizon) {
+    const note = track.lead[leadStep % track.lead.length]!
+    if (note.freq !== null) {
+      playNote(track.leadWave, note.freq, nextLeadTime, stepDur * note.dur * 0.95, 0.32)
+    }
+    nextLeadTime += stepDur * note.dur
+    leadStep++
   }
+
+  while (nextDrumTime < horizon) {
+    const drum = track.drumPattern[drumStep % track.drumPattern.length]
+    if (drum) {
+      playDrum(drum, nextDrumTime)
+    }
+    nextDrumTime += stepDur * 1
+    drumStep++
+  }
+
+  scheduledTimer = window.setTimeout(scheduleNotes, 25)
 }
 
-export async function startMusic(): Promise<void> {
+function fadeIn() {
+  if (!ctx || !masterGain) return
+  const now = ctx.currentTime
+  masterGain.gain.cancelScheduledValues(now)
+  masterGain.gain.setValueAtTime(masterGain.gain.value, now)
+  masterGain.gain.linearRampToValueAtTime(MASTER_VOLUME, now + FADE_IN_MS / 1000)
+}
+
+export async function startMusic(track: SceneType | 'menu' = 'menu'): Promise<void> {
   const audioCtx = ensureContext()
   if (audioCtx.state === 'suspended') {
-    await audioCtx.resume()
+    try {
+      await audioCtx.resume()
+    } catch {
+      return
+    }
   }
-  if (isPlaying) return
+  if (resetTimer !== null) {
+    clearTimeout(resetTimer)
+    resetTimer = null
+  }
+  currentTrack = track
+  if (isPlaying) {
+    bassStep = 0
+    leadStep = 0
+    drumStep = 0
+    nextBassTime = audioCtx.currentTime + 0.05
+    nextLeadTime = audioCtx.currentTime + 0.05
+    nextDrumTime = audioCtx.currentTime + 0.05
+    return
+  }
   isPlaying = true
-  currentStep = 0
-  nextNoteTime = audioCtx.currentTime + 0.05
+  bassStep = 0
+  leadStep = 0
+  drumStep = 0
+  nextBassTime = audioCtx.currentTime + 0.05
+  nextLeadTime = audioCtx.currentTime + 0.05
+  nextDrumTime = audioCtx.currentTime + 0.05
+  fadeIn()
   scheduleNotes()
 }
 
+export function changeTrack(track: SceneType | 'menu'): void {
+  if (!isPlaying || currentTrack === track) {
+    currentTrack = track
+    return
+  }
+  if (!ctx) return
+  currentTrack = track
+  bassStep = 0
+  leadStep = 0
+  drumStep = 0
+  nextBassTime = ctx.currentTime + 0.05
+  nextLeadTime = ctx.currentTime + 0.05
+  nextDrumTime = ctx.currentTime + 0.05
+}
+
 export function stopMusic(): void {
+  if (!isPlaying) return
   isPlaying = false
   if (scheduledTimer !== null) {
     clearTimeout(scheduledTimer)
     scheduledTimer = null
   }
+  if (resetTimer !== null) {
+    clearTimeout(resetTimer)
+    resetTimer = null
+  }
   if (masterGain && ctx) {
-    masterGain.gain.cancelScheduledValues(ctx.currentTime)
-    masterGain.gain.setValueAtTime(masterGain.gain.value, ctx.currentTime)
-    masterGain.gain.linearRampToValueAtTime(0, ctx.currentTime + 0.1)
-    setTimeout(() => {
-      if (masterGain) masterGain.gain.value = 0.08
-    }, 200)
+    const now = ctx.currentTime
+    masterGain.gain.cancelScheduledValues(now)
+    masterGain.gain.setValueAtTime(masterGain.gain.value, now)
+    masterGain.gain.linearRampToValueAtTime(0, now + FADE_OUT_MS / 1000)
   }
 }
 

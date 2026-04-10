@@ -9,6 +9,7 @@ export function useScenePlayback() {
   const autoPlay = useVillaStore((s) => s.ui.autoPlay)
   const lineDelayMs = useVillaStore((s) => s.ui.lineDelayMs)
   const isGenerating = useVillaStore((s) => s.isGenerating)
+  const winner = useVillaStore((s) => s.episode.winnerCouple)
 
   const totalLines = useVillaStore((s) => {
     const scene = s.episode.scenes.find((sc) => sc.id === s.currentSceneId)
@@ -16,7 +17,8 @@ export function useScenePlayback() {
   })
 
   useEffect(() => {
-    if (!autoPlay || !currentSceneId || isGenerating || totalLines === 0) return
+    if (!autoPlay || winner) return
+    if (!currentSceneId || isGenerating || totalLines === 0) return
 
     const isLast = currentLineIndex >= totalLines - 1
 
@@ -27,5 +29,5 @@ export function useScenePlayback() {
 
     const t = setTimeout(() => generateScene(), lineDelayMs * 2)
     return () => clearTimeout(t)
-  }, [autoPlay, currentSceneId, currentLineIndex, totalLines, lineDelayMs, isGenerating, advanceLine, generateScene])
+  }, [autoPlay, currentSceneId, currentLineIndex, totalLines, lineDelayMs, isGenerating, advanceLine, generateScene, winner])
 }

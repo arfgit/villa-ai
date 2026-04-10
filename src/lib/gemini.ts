@@ -33,23 +33,13 @@ export async function generateSceneFromGemini(prompt: string, validAgentIds: str
 
       const result = await model.generateContent(prompt)
       const text = result.response.text()
-      try {
-        return parseAndValidate(text, validAgentIds)
-      } catch (parseErr) {
-        const detail = parseErr instanceof Error ? parseErr.message : ''
-        throw new Error(`The AI returned an invalid scene. ${detail}`.trim())
-      }
+      return parseAndValidate(text, validAgentIds)
     } catch (err) {
       lastError = err
-      const msg = err instanceof Error ? err.message : ''
-      const isTransient = msg.includes('429') || msg.includes('404') || msg.includes('500') || msg.includes('503') || msg.includes('overloaded')
       const isLast = modelName === MODELS[MODELS.length - 1]
+      if (!isLast) continue
 
-      if (isTransient && !isLast) continue
-      if (!isTransient) {
-        throw err
-      }
-
+      const msg = err instanceof Error ? err.message : ''
       if (msg.includes('429')) {
         throw new Error('Rate limit reached. The free tier resets daily. Wait a moment and try again.')
       }

@@ -13,6 +13,8 @@ export default function SceneView() {
   const currentLineIndex = useVillaStore((s) => s.currentLineIndex)
   const isGenerating = useVillaStore((s) => s.isGenerating)
   const lastError = useVillaStore((s) => s.lastError)
+  const advanceLine = useVillaStore((s) => s.advanceLine)
+  const autoPlay = useVillaStore((s) => s.ui.autoPlay)
 
   const scene = episode.scenes.find((s) => s.id === currentSceneId)
 
@@ -40,6 +42,8 @@ export default function SceneView() {
   const participants = cast.filter((c) => scene.participantIds.includes(c.id))
   const currentLine = scene.dialogue[currentLineIndex]
   const speakingAgentId = currentLine?.agentId
+  const targetAgentId = currentLine?.targetAgentId
+  const isLastLine = currentLineIndex >= scene.dialogue.length - 1
 
   return (
     <div className="flex-1 flex flex-col gap-3 p-3 sm:p-4 overflow-y-auto scrollbar-thin relative">
@@ -47,27 +51,51 @@ export default function SceneView() {
         sceneType={scene.type}
         participants={participants}
         speakingAgentId={speakingAgentId}
+        targetAgentId={targetAgentId}
         emotions={episode.emotions}
       />
 
-      <ChatBubbleFeed
-        lines={scene.dialogue}
-        cast={cast}
-        currentLineIndex={currentLineIndex}
-      />
+      <div className="h-[260px] sm:h-[280px] flex flex-col">
+        <ChatBubbleFeed
+          lines={scene.dialogue}
+          cast={cast}
+          currentLineIndex={currentLineIndex}
+        />
+      </div>
 
-      {scene.systemEvents.length > 0 && (
-        <div className="flex flex-wrap gap-1.5">
+      {!autoPlay && !isLastLine && !isGenerating && (
+        <div className="flex justify-center">
+          <button
+            onClick={advanceLine}
+            className="inline-flex items-center gap-2 px-4 py-1.5 text-xs uppercase tracking-widest border border-villa-aqua text-villa-aqua hover:bg-villa-aqua hover:text-villa-bg cursor-pointer leading-none"
+          >
+            <span className="text-[9px]">▷</span>
+            <span>next line ({currentLineIndex + 1}/{scene.dialogue.length})</span>
+          </button>
+        </div>
+      )}
+
+      {scene.systemEvents.length > 0 && isLastLine && (
+        <div className="flex flex-wrap gap-1.5 animate-villa-fadein">
           {scene.systemEvents.map((event) => (
             <SystemChip key={event.id} event={event} />
           ))}
         </div>
       )}
 
-      {currentLineIndex >= scene.dialogue.length - 1 && (
+      {isLastLine && (
         <div className="border border-villa-sun/40 bg-villa-sun/5 p-2 text-xs animate-villa-fadein">
           <span className="text-villa-sun uppercase tracking-wider">[outcome]</span>
           <span className="text-villa-ink ml-2">{scene.outcome}</span>
+        </div>
+      )}
+
+      {episode.winnerCouple && isLastLine && (
+        <div className="border-2 border-villa-sun bg-villa-sun/10 p-3 text-center animate-villa-fadein">
+          <div className="text-[10px] uppercase tracking-widest text-villa-sun mb-1">★ winners of the villa ★</div>
+          <div className="text-sm">
+            {cast.find((c) => c.id === episode.winnerCouple!.a)?.name} &nbsp;❤&nbsp; {cast.find((c) => c.id === episode.winnerCouple!.b)?.name}
+          </div>
         </div>
       )}
 

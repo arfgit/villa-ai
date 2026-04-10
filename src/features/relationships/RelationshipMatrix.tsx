@@ -7,6 +7,7 @@ interface Props {
   relationships: Relationship[]
   metric: RelationshipMetric
   onMetricChange: (m: RelationshipMetric) => void
+  eliminatedIds?: string[]
 }
 
 const METRIC_LABELS: Record<RelationshipMetric, string> = {
@@ -27,7 +28,9 @@ const METRIC_TIPS: Record<RelationshipMetric, string> = {
   jealousy: 'How threatened one feels by the other (0-100). Spikes when their crush flirts with someone else. Cools down with reassurance.',
 }
 
-export default function RelationshipMatrix({ cast, relationships, metric, onMetricChange }: Props) {
+export default function RelationshipMatrix({ cast, relationships, metric, onMetricChange, eliminatedIds = [] }: Props) {
+  const activeCast = cast.filter((c) => !eliminatedIds.includes(c.id))
+  const displayCast = activeCast
   function getValue(fromId: string, toId: string): number {
     const r = relationships.find((r) => r.fromId === fromId && r.toId === toId)
     if (!r) return 0
@@ -74,7 +77,7 @@ export default function RelationshipMatrix({ cast, relationships, metric, onMetr
           <thead>
             <tr>
               <th className="p-1"></th>
-              {cast.map((c) => (
+              {displayCast.map((c) => (
                 <th key={c.id} className={clsx('p-1 text-center font-normal', c.colorClass)}>
                   {c.name.slice(0, 3)}
                 </th>
@@ -82,10 +85,10 @@ export default function RelationshipMatrix({ cast, relationships, metric, onMetr
             </tr>
           </thead>
           <tbody>
-            {cast.map((from) => (
+            {displayCast.map((from) => (
               <tr key={from.id}>
                 <td className={clsx('p-1 text-left', from.colorClass)}>{from.name.slice(0, 3)}</td>
-                {cast.map((to) => {
+                {displayCast.map((to) => {
                   if (from.id === to.id) {
                     return <td key={to.id} className="p-1 text-center text-villa-dim">·</td>
                   }

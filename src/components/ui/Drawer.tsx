@@ -16,7 +16,14 @@ export default function Drawer({ open, onClose, title, children }: Props) {
   useEffect(() => {
     if (open) {
       setMounted(true)
-      requestAnimationFrame(() => setVisible(true))
+      let id2 = 0
+      const id1 = requestAnimationFrame(() => {
+        id2 = requestAnimationFrame(() => setVisible(true))
+      })
+      return () => {
+        cancelAnimationFrame(id1)
+        if (id2) cancelAnimationFrame(id2)
+      }
     } else {
       setVisible(false)
       const t = setTimeout(() => setMounted(false), 220)

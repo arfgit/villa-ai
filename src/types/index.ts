@@ -92,6 +92,9 @@ export interface Episode {
   relationships: Relationship[]
   emotions: EmotionState[]
   couples: Couple[]
+  eliminatedIds: string[]
+  unpairedStreak: Record<string, number>
+  winnerCouple: Couple | null
   createdAt: number
   updatedAt: number
 }
