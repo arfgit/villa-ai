@@ -124,16 +124,8 @@ export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> =
   minigame: { title: 'Mini Game', emoji: '🎯' },
 }
 
-// The first recouple of the season isn't actually a *re*-coupling — nobody
-// has paired up yet — so we label it "First Coupling" wherever it's shown.
 export const FIRST_COUPLING_LABEL = { title: 'First Coupling', emoji: '💕' }
 
-/**
- * Resolve the display label for a scene. For recouple scenes we substitute
- * "First Coupling" on the first recouple of the episode. `recoupleOrdinal` is
- * the 1-based index of this scene among all recouple scenes in the episode
- * (pass 0 or undefined for non-recouple scenes).
- */
 export function getSceneLabel(
   sceneType: SceneType,
   recoupleOrdinal?: number

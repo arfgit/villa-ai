@@ -29,10 +29,6 @@ export default function BottomActionBar({ onToggleCast, onToggleRelationships }:
     const scene = s.episode.scenes.find((sc) => sc.id === s.currentSceneId)
     return scene?.type
   })
-  // True only when the *final* scene of the season has finished playing.
-  // winnerCouple is set as soon as the finale scene is generated, so we can't
-  // gate UI on that alone — we still need to show pause during the finale's
-  // dialogue playback.
   const seasonOver = useVillaStore((s) => {
     if (!s.episode.winnerCouple) return false
     const scene = s.episode.scenes.find((sc) => sc.id === s.currentSceneId)

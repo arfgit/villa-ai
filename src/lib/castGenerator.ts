@@ -92,7 +92,7 @@ function pick<T>(arr: T[]): T {
 
 function pickUnique<T>(arr: T[], used: Set<T>): T {
   const available = arr.filter((x) => !used.has(x))
-  if (available.length === 0) return pick(arr) // fallback if pool exhausted
+  if (available.length === 0) return pick(arr)
   return pick(available)
 }
 
@@ -100,11 +100,6 @@ function generateId(name: string): string {
   return name.toLowerCase().replace(/[^a-z]/g, '') + Math.floor(Math.random() * 900 + 100)
 }
 
-/**
- * Generate a set of unique cast members for a new season.
- * @param count Number of agents to generate
- * @param existingIds IDs to avoid collision with
- */
 export function generateCast(count: number, existingIds: string[] = []): Agent[] {
   const usedNames = new Set<string>()
   const usedColors = new Set<string>()
@@ -114,7 +109,7 @@ export function generateCast(count: number, existingIds: string[] = []): Agent[]
   for (let i = 0; i < count; i++) {
     const name = pickUnique(FIRST_NAMES, usedNames)
     usedNames.add(name)
-    const age = 21 + Math.floor(Math.random() * 10) // 21-30
+    const age = 21 + Math.floor(Math.random() * 10)
     const archetype = pick(ARCHETYPES)
     const personality = pick(PERSONALITY_TEMPLATES)
     const voice = pick(VOICE_STYLES)
@@ -150,9 +145,6 @@ export function generateCast(count: number, existingIds: string[] = []): Agent[]
   return agents
 }
 
-/**
- * Generate bombshell contestants (separate from main cast).
- */
 export function generateBombshells(count: number, mainCastIds: string[]): Agent[] {
   return generateCast(count, mainCastIds)
 }

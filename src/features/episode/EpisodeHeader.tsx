@@ -16,9 +16,6 @@ export default function EpisodeHeader() {
       prevSceneIdRef.current = currentSceneId
       return
     }
-    // Only auto-scroll if the user was on the immediately preceding scene
-    // (i.e. "following along"). If they clicked an older scene to re-read,
-    // don't yank them to the new one.
     const scenes = episode.scenes
     const prevIdx = scenes.findIndex((s) => s.id === prevSceneIdRef.current)
     const curIdx = scenes.findIndex((s) => s.id === currentSceneId)

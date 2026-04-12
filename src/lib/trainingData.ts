@@ -1,32 +1,25 @@
 import type { Episode, Agent, AgentMemory } from '@/types'
 import { buildSeasonExport, buildRLExport } from './exportData'
 
-// ── localStorage keys ──
 const TRAINING_KEY = 'villa-ai-training'
 const WISDOM_KEY = 'villa-ai-wisdom'
 const META_WISDOM_KEY = 'villa-ai-meta-wisdom'
-const MAX_SEASONS = 5   // keep last N seasons of training data
+const MAX_SEASONS = 5
 
-// ── Types for persisted training data ──
 export interface TrainingArchive {
   seasons: SeasonSummary[]
   updatedAt: number
 }
 
-/** Compact season summary for prompt injection — NOT the full export */
 export interface SeasonSummary {
   seasonNumber: number
   theme: string
   winnerNames: [string, string] | null
   totalScenes: number
   eliminationCount: number
-  /** Top 3 most dramatic moments */
   highlights: string[]
-  /** Top lessons learned by agents (meta-wisdom) */
   lessons: string[]
 }
-
-// ── Wisdom persistence ──
 
 export function loadWisdomArchive(): Map<string, AgentMemory[]> {
   try {
@@ -43,7 +36,7 @@ export function saveWisdomArchive(archive: Map<string, AgentMemory[]>): void {
   try {
     const entries = Array.from(archive.entries())
     localStorage.setItem(WISDOM_KEY, JSON.stringify(entries))
-  } catch { /* quota exceeded */ }
+  } catch {}
 }
 
 export function loadMetaWisdom(): AgentMemory[] {
@@ -59,31 +52,21 @@ export function loadMetaWisdom(): AgentMemory[] {
 export function saveMetaWisdom(wisdom: AgentMemory[]): void {
   try {
     localStorage.setItem(META_WISDOM_KEY, JSON.stringify(wisdom))
-  } catch { /* quota exceeded */ }
+  } catch {}
 }
 
-// ── Training data auto-save ──
-
-/**
- * Auto-save season + RL training data after a season completes.
- * Called from archiveSeasonWisdom in the store.
- */
 export function autoSaveTrainingData(episode: Episode, cast: Agent[]): void {
-  // Build compact summary for prompt reference
   const summary = buildSeasonSummary(episode, cast)
 
-  // Load existing archive
   const archive = loadTrainingArchive()
   archive.seasons.push(summary)
-  // Keep only the last N seasons
   while (archive.seasons.length > MAX_SEASONS) archive.seasons.shift()
   archive.updatedAt = Date.now()
 
   try {
     localStorage.setItem(TRAINING_KEY, JSON.stringify(archive))
-  } catch { /* quota exceeded */ }
+  } catch {}
 
-  // Also save the full exports for download later
   try {
     const seasonExport = buildSeasonExport(episode, cast)
     const rlExport = buildRLExport(episode, cast)
@@ -92,7 +75,7 @@ export function autoSaveTrainingData(episode: Episode, cast: Agent[]): void {
     existing.push({ season: seasonExport, rl: rlExport })
     while (existing.length > MAX_SEASONS) existing.shift()
     localStorage.setItem(fullKey, JSON.stringify(existing))
-  } catch { /* quota exceeded — full exports are large, summary is the priority */ }
+  } catch {}
 }
 
 export function loadTrainingArchive(): TrainingArchive {
@@ -105,9 +88,6 @@ export function loadTrainingArchive(): TrainingArchive {
   }
 }
 
-/**
- * Build a compact season summary suitable for prompt injection.
- */
 function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
   const winnerNames: [string, string] | null = episode.winnerCouple
     ? [
@@ -116,7 +96,6 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
       ]
     : null
 
-  // Extract highlights from key dramatic scenes
   const highlights: string[] = []
   for (const scene of episode.scenes) {
     for (const event of scene.systemEvents) {
@@ -132,7 +111,6 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
     }
   }
 
-  // Extract top lessons from agent reflections
   const lessons: string[] = []
   for (const brain of Object.values(episode.brains)) {
     const topReflection = brain.memories
@@ -145,7 +123,7 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
 
   return {
     seasonNumber: episode.number,
-    theme: episode.seasonTheme.split('\n')[0] ?? '',  // just the core tension line
+    theme: episode.seasonTheme.split('\n')[0] ?? '',
     winnerNames,
     totalScenes: episode.scenes.length,
     eliminationCount: episode.eliminatedIds.length,
@@ -154,11 +132,6 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
   }
 }
 
-/**
- * Build a prompt block summarizing past seasons for the LLM.
- * Injected into scene prompts so the writers room has context on
- * what happened in prior seasons — the RL training reference.
- */
 export function buildPastSeasonsPromptBlock(): string {
   const archive = loadTrainingArchive()
   if (archive.seasons.length === 0) return ''

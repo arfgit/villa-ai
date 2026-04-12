@@ -24,7 +24,6 @@ const EMOTION_FACE: Record<Emotion, string> = {
   neutral: '😐',
 }
 
-// Floating bubble emoji — shows above the character to represent current mood
 const EMOTION_BUBBLE: Record<Emotion, string> = {
   happy: '💛',
   flirty: '💕',
@@ -38,7 +37,6 @@ const EMOTION_BUBBLE: Record<Emotion, string> = {
   neutral: '',
 }
 
-// Emotion-specific body poses
 const EMOTION_POSES: Partial<Record<Emotion, string[]>> = {
   angry:   ['\\|/', '|X|', '\\|/', '>|<', '\\|/', '|X|', '>|<', '\\|/'],
   sad:     ['.|.', '.|.', './.', '.|.', '.\\.',  '.|.', './.', '.\\.' ],
@@ -51,7 +49,6 @@ const EMOTION_POSES: Partial<Record<Emotion, string[]>> = {
 const IDLE_POSES =    ['\\|/', '\\o/', '|||', '/|\\', '|o|', '\\|/', '/o\\', '|||']
 const TALKING_POSES = ['\\o/', '\\|/', '\\o/', '|o|', '/o\\', '\\o/', '|o|', '\\|/']
 
-// Mini-game / challenge specific animation frames (pure ASCII, no emoji in body)
 const GAME_POSES =   ['\\o/', '/o\\', '\\o/', '|o|', '/o\\', '\\o/', '|o|', '/o\\']
 const WINNER_POSES = ['\\o/', '/o\\', '\\o/', '\\o/', '/o\\', '\\o/', '/o\\', '\\o/']
 
@@ -69,7 +66,6 @@ export default function AgentAscii({ agent, emotion = 'neutral', size = 'md', hi
     return () => clearInterval(t)
   }, [highlighted, size, animSpeed])
 
-  // Pick the right pose set based on context
   let poseSet: string[]
   if (isWinner) {
     poseSet = WINNER_POSES
@@ -82,7 +78,6 @@ export default function AgentAscii({ agent, emotion = 'neutral', size = 'md', hi
   }
   const pose = poseSet[poseIdx % poseSet.length]
 
-  // Show bubble when not speaking (speaking has the chat feed) and emotion is notable
   const showBubble = !highlighted && bubble && emotion !== 'neutral'
 
   if (size === 'sm') {
@@ -115,7 +110,6 @@ export default function AgentAscii({ agent, emotion = 'neutral', size = 'md', hi
     )
   }
 
-  // md size — clean body with floating emotion bubble
   return (
     <div className={clsx(
       'ascii inline-block text-center text-xs leading-[1.1] transition-all duration-200 relative',

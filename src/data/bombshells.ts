@@ -1,9 +1,5 @@
 import type { Agent } from '@/types'
 
-// Reserve contestants. Not active at season start — introduced via bombshell
-// scenes partway through the season. Each one enters the villa, picks someone
-// already coupled up, and steals them — leaving the abandoned partner unpaired
-// and at risk of elimination at the next recouple.
 export const BOMBSHELL_POOL: Agent[] = [
   {
     id: 'dante',

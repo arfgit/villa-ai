@@ -1,39 +1,52 @@
 import { existsSync, readFileSync, writeFileSync, mkdirSync, readdirSync } from 'fs'
-import { join } from 'path'
+import { join, resolve, dirname } from 'path'
+import { fileURLToPath } from 'url'
 
+const __dirname = dirname(fileURLToPath(import.meta.url))
+const SERVER_ROOT = resolve(__dirname, '../..')
+const LOCAL_DATA_DIR = join(process.cwd(), '.data')
+
+let initialized = false
 let useFirestore = false
 let db: FirebaseFirestore.Firestore | null = null
 
-const LOCAL_DATA_DIR = join(process.cwd(), '.data')
+async function ensureInit(): Promise<void> {
+  if (initialized) return
+  initialized = true
 
-try {
-  const serviceAccountPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
-  const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT
+  try {
+    const rawPath = process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+    const serviceAccountPath = rawPath ? resolve(SERVER_ROOT, rawPath) : undefined
+    const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT
 
-  if (serviceAccountPath || serviceAccountJson) {
-    const { initializeApp, cert, getApps } = await import('firebase-admin/app')
-    const { getFirestore: getFs } = await import('firebase-admin/firestore')
-
-    if (getApps().length === 0) {
-      if (serviceAccountPath) {
+    if (serviceAccountPath && existsSync(serviceAccountPath)) {
+      const { initializeApp, cert, getApps } = await import('firebase-admin/app')
+      const { getFirestore: getFs } = await import('firebase-admin/firestore')
+      if (getApps().length === 0) {
         const sa = JSON.parse(readFileSync(serviceAccountPath, 'utf-8'))
-        initializeApp({ credential: cert(sa), projectId: 'villa-ai-9ff17' })
-      } else if (serviceAccountJson) {
-        const sa = JSON.parse(serviceAccountJson)
-        initializeApp({ credential: cert(sa), projectId: 'villa-ai-9ff17' })
+        initializeApp({ credential: cert(sa) })
       }
+      db = getFs()
+      useFirestore = true
+      console.log('[firebase] connected to Firestore')
+    } else if (serviceAccountJson) {
+      const { initializeApp, cert, getApps } = await import('firebase-admin/app')
+      const { getFirestore: getFs } = await import('firebase-admin/firestore')
+      if (getApps().length === 0) {
+        const sa = JSON.parse(serviceAccountJson)
+        initializeApp({ credential: cert(sa) })
+      }
+      db = getFs()
+      useFirestore = true
+      console.log('[firebase] connected to Firestore')
+    } else {
+      console.log('[firebase] no credentials found, using local JSON file storage')
+      if (!existsSync(LOCAL_DATA_DIR)) mkdirSync(LOCAL_DATA_DIR, { recursive: true })
     }
-    db = getFs()
-    useFirestore = true
-    console.log('[firebase] connected to Firestore')
-  } else {
-    console.log('[firebase] no credentials found, using local JSON file storage')
-    console.log('[firebase] to use Firestore, set FIREBASE_SERVICE_ACCOUNT_PATH in server/.env')
+  } catch (err) {
+    console.warn('[firebase] init failed, falling back to local storage:', err instanceof Error ? err.message : err)
     if (!existsSync(LOCAL_DATA_DIR)) mkdirSync(LOCAL_DATA_DIR, { recursive: true })
   }
-} catch (err) {
-  console.warn('[firebase] init failed, falling back to local storage:', err instanceof Error ? err.message : err)
-  if (!existsSync(LOCAL_DATA_DIR)) mkdirSync(LOCAL_DATA_DIR, { recursive: true })
 }
 
 function localPath(collection: string, docId: string): string {
@@ -66,6 +79,7 @@ export function isFirebaseAvailable(): boolean {
 }
 
 export async function saveSeason(seasonId: string, data: unknown): Promise<void> {
+  await ensureInit()
   if (useFirestore && db) {
     const { FieldValue } = await import('firebase-admin/firestore')
     await db.collection('seasons').doc(seasonId).set({
@@ -78,6 +92,7 @@ export async function saveSeason(seasonId: string, data: unknown): Promise<void>
 }
 
 export async function getSeason(seasonId: string): Promise<unknown> {
+  await ensureInit()
   if (useFirestore && db) {
     const snap = await db.collection('seasons').doc(seasonId).get()
     return snap.exists ? snap.data() : null
@@ -86,6 +101,7 @@ export async function getSeason(seasonId: string): Promise<unknown> {
 }
 
 export async function saveTrainingData(seasonId: string, data: unknown): Promise<void> {
+  await ensureInit()
   if (useFirestore && db) {
     const { FieldValue } = await import('firebase-admin/firestore')
     await db.collection('trainingData').doc(seasonId).set({
@@ -98,6 +114,7 @@ export async function saveTrainingData(seasonId: string, data: unknown): Promise
 }
 
 export async function getTrainingArchive(maxSeasons = 5): Promise<unknown[]> {
+  await ensureInit()
   if (useFirestore && db) {
     const snap = await db.collection('trainingData').orderBy('exportedAt', 'desc').limit(maxSeasons).get()
     return snap.docs.map((d) => d.data())
@@ -106,6 +123,7 @@ export async function getTrainingArchive(maxSeasons = 5): Promise<unknown[]> {
 }
 
 export async function saveWisdom(key: string, data: unknown): Promise<void> {
+  await ensureInit()
   if (useFirestore && db) {
     const { FieldValue } = await import('firebase-admin/firestore')
     await db.collection('wisdomArchives').doc(key).set({
@@ -118,6 +136,7 @@ export async function saveWisdom(key: string, data: unknown): Promise<void> {
 }
 
 export async function getWisdom(key: string): Promise<unknown> {
+  await ensureInit()
   if (useFirestore && db) {
     const snap = await db.collection('wisdomArchives').doc(key).get()
     return snap.exists ? snap.data() : null
