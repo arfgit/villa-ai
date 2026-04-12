@@ -1,5 +1,4 @@
 import { create } from 'zustand'
-import { persist } from 'zustand/middleware'
 import type { Episode, Scene, SceneType, RelationshipMetric, LlmSceneResponse, Relationship, EmotionState, AgentBrain, AgentMemory, Agent, RewardEvent } from '@/types'
 import { HOST } from '@/data/host'
 import { sampleSeasonCast } from '@/data/castPool'
@@ -17,6 +16,7 @@ import { nextSceneType as planNextScene, getSeasonPhase, bombshellArrivalCount }
 import { buildSeasonExport, buildRLExport } from '@/lib/exportData'
 import { downloadJson } from '@/lib/download'
 import { autoSaveTrainingData, loadWisdomArchive, saveWisdomArchive, loadMetaWisdom, saveMetaWisdom } from '@/lib/trainingData'
+import { saveSeason as saveSeasonToServer, loadCurrentSeason } from '@/lib/api'
 import { newId } from '@/lib/ids'
 
 interface UiState {
@@ -625,8 +625,25 @@ const DEFAULT_UI: UiState = {
   isPaused: false,
 }
 
+function stripEmbeddings(brains: Record<string, AgentBrain>): Record<string, AgentBrain> {
+  const stripped: Record<string, AgentBrain> = {}
+  for (const [id, brain] of Object.entries(brains)) {
+    stripped[id] = { ...brain, memories: brain.memories.map((m) => ({ ...m, embedding: [] })) }
+  }
+  return stripped
+}
+
+function syncToServer(state: { episode: Episode; cast: Agent[] }): void {
+  const payload = {
+    ...state.episode,
+    brains: stripEmbeddings(state.episode.brains),
+  }
+  saveSeasonToServer(payload, state.cast).catch((err) => {
+    console.warn('[sync] failed to save to server:', err instanceof Error ? err.message : err)
+  })
+}
+
 export const useVillaStore = create<VillaState>()(
-  persist(
     (set, get) => ({
   cast: INITIAL_EPISODE.castPool,
   episode: INITIAL_EPISODE,
@@ -652,6 +669,7 @@ export const useVillaStore = create<VillaState>()(
       sceneQueue: [],
       ui: { ...s.ui, isPaused: false },
     }))
+    syncToServer({ episode: newEpisode, cast: newEpisode.castPool })
   },
 
   generateScene: async (type) => {
@@ -1306,6 +1324,8 @@ export const useVillaStore = create<VillaState>()(
         generationProgress: null,
       })
 
+      syncToServer({ episode: get().episode, cast: get().cast })
+
       const postState = get()
       const chillTypes = new Set(['firepit', 'pool', 'kitchen', 'bedroom', 'date'])
       const postActiveCast = postState.cast.filter((a) => !postState.episode.eliminatedIds.includes(a.id))
@@ -1393,13 +1413,6 @@ export const useVillaStore = create<VillaState>()(
     const { episode, cast } = get()
     const data = buildSeasonExport(episode, cast)
     downloadJson(data, `villa-ai-season-${episode.number}.json`)
-    try {
-      const key = 'villa-ai-exports'
-      const existing = JSON.parse(localStorage.getItem(key) ?? '[]') as unknown[]
-      existing.push(data)
-      while (existing.length > 5) existing.shift()
-      localStorage.setItem(key, JSON.stringify(existing))
-    } catch {}
   },
 
   exportRLData: () => {
@@ -1407,43 +1420,29 @@ export const useVillaStore = create<VillaState>()(
     const data = buildRLExport(episode, cast)
     downloadJson(data, `villa-ai-rl-season-${episode.number}.json`)
   },
-}),
-    {
-      name: 'villa-ai-state',
-      partialize: (state) => {
-        const strippedBrains: Record<string, AgentBrain> = {}
-        for (const [id, brain] of Object.entries(state.episode.brains)) {
-          strippedBrains[id] = {
-            ...brain,
-            memories: brain.memories.map((m) => ({ ...m, embedding: [] })),
-          }
-        }
-        return {
-          cast: state.cast,
-          episode: { ...state.episode, brains: strippedBrains },
-          currentSceneId: state.currentSceneId,
-          currentLineIndex: state.currentLineIndex,
-        }
-      },
-      merge: (persisted, current) => {
-        const saved = persisted as Partial<VillaState> | undefined
-        if (!saved?.episode || !saved.cast || saved.episode.scenes.length === 0) {
-          return current
-        }
-        seasonCounter = saved.episode.number ?? seasonCounter
-        return {
-          ...current,
-          cast: saved.cast,
-          episode: saved.episode,
-          currentSceneId: saved.currentSceneId ?? null,
-          currentLineIndex: saved.currentLineIndex ?? 0,
-          isGenerating: false,
-          lastError: null,
-          generationProgress: null,
-          sceneQueue: [],
-          ui: { ...DEFAULT_UI },
-        }
-      },
-    }
-  )
-)
+}))
+
+export async function restoreFromServer(): Promise<boolean> {
+  try {
+    const saved = await loadCurrentSeason()
+    if (!saved?.episode || !saved?.cast) return false
+    const episode = saved.episode as Episode
+    const cast = saved.cast as Agent[]
+    if (episode.scenes.length === 0) return false
+    seasonCounter = episode.number ?? seasonCounter
+    useVillaStore.setState({
+      cast,
+      episode,
+      currentSceneId: episode.scenes[episode.scenes.length - 1]?.id ?? null,
+      currentLineIndex: 0,
+      isGenerating: false,
+      lastError: null,
+      generationProgress: null,
+      sceneQueue: [],
+    })
+    return true
+  } catch (err) {
+    console.warn('[restore] failed to load from server:', err instanceof Error ? err.message : err)
+    return false
+  }
+}

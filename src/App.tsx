@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { useVillaStore } from '@/store/useVillaStore'
+import { useEffect, useState } from 'react'
+import { useVillaStore, restoreFromServer } from '@/store/useVillaStore'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { changeTrack } from '@/lib/music'
 import EpisodeHeader from '@/features/episode/EpisodeHeader'
@@ -19,9 +19,14 @@ export default function App() {
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric)
 
   const bp = useBreakpoint()
+  const [isRestoring, setIsRestoring] = useState(true)
 
   const currentScene = episode.scenes.find((s) => s.id === currentSceneId)
   const currentSceneType = currentScene?.type
+
+  useEffect(() => {
+    restoreFromServer().finally(() => setIsRestoring(false))
+  }, [])
 
   useEffect(() => {
     if (currentSceneType) {
@@ -30,6 +35,14 @@ export default function App() {
       changeTrack('menu')
     }
   }, [currentSceneType])
+
+  if (isRestoring) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-villa-bg crt">
+        <div className="text-villa-pink text-xs uppercase tracking-widest animate-pulse">loading your villa...</div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-[100dvh] flex flex-col bg-villa-bg crt">

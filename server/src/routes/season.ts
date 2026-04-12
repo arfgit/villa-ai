@@ -6,13 +6,15 @@ export const seasonRouter = Router()
 seasonRouter.post('/', async (req, res) => {
   try {
     const userId = req.headers['x-user-id'] as string
-    const { episode } = req.body
+    const { episode, cast } = req.body
     if (!userId || !episode?.id) {
       res.status(400).json({ error: 'x-user-id header and episode with id are required' })
       return
     }
+    const payload = { userId, episode, cast, updatedAt: Date.now() }
     const docId = `${userId}_${episode.id}`
-    await saveSeason(docId, { userId, episode, createdAt: Date.now() })
+    await saveSeason(docId, payload)
+    await saveSeason(`${userId}_current`, payload)
     res.json({ success: true, seasonId: docId })
   } catch (err) {
     const msg = err instanceof Error ? err.message : 'Unknown error'
