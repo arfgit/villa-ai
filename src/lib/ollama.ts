@@ -32,9 +32,6 @@ export async function generateSceneFromOllama(
           format: 'json',
           stream: false,
           options: {
-            // Temperature alone on small models leads to repetitive phrasing.
-            // Adding nucleus sampling + top_k + repetition penalty materially
-            // increases output variety, which is critical on 3B-class models.
             temperature: attempt === 0 ? 0.95 : 0.75,
             top_p: 0.95,
             top_k: 80,
@@ -80,7 +77,6 @@ export async function generateSceneFromOllama(
       return parseAndValidate(data.response, validAgentIds, requiredSpeakerIds)
     } catch (err) {
       lastError = err
-      // retry once at lower temp
     }
   }
 
@@ -113,7 +109,7 @@ export async function generateBatchFromOllama(
             top_k: 80,
             repeat_penalty: 1.15,
             presence_penalty: 0.3,
-            num_predict: 8192,  // larger for batch
+            num_predict: 8192,
           },
         }),
       })

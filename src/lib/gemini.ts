@@ -61,7 +61,6 @@ export async function generateSceneFromGemini(prompt: string, validAgentIds: str
         lastError = err
         const msg = err instanceof Error ? err.message : ''
         if (msg.includes('429') || msg.toLowerCase().includes('resource_exhausted')) {
-          // 429 is per-model — try the next model rather than bailing out
           break
         }
         const isParseErr = msg.includes('JSON') || msg.includes('repair') || msg.includes('dialogue')
@@ -96,7 +95,7 @@ export async function generateBatchFromGemini(
           generationConfig: {
             responseMimeType: 'application/json',
             temperature: attempt === 0 ? 0.95 : 0.7,
-            maxOutputTokens: 8192,  // larger for batch
+            maxOutputTokens: 8192,
           },
         })
         const result = await model.generateContent(prompt)

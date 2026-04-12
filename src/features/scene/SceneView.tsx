@@ -47,7 +47,6 @@ export default function SceneView() {
   const recoupleOrdinal = scene.type === 'recouple'
     ? episode.scenes.slice(0, sceneNumber).filter((s) => s.type === 'recouple').length
     : 0
-  // Host appears in scenes where they actually narrate/emcee
   const hostScenes: typeof scene.type[] = ['recouple', 'bombshell', 'minigame', 'challenge']
   const showHost = sceneNumber === 1 || hostScenes.includes(scene.type)
 

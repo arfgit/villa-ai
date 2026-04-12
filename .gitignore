@@ -24,6 +24,9 @@ npm-debug.log*
 *.swp
 *.swo
 
+# Local data (server fallback when Firebase not configured)
+.data/
+
 # Claude / AI tooling
 .claude/
 .serena/

@@ -12,9 +12,9 @@ interface Props {
   targetAgentId?: string
   emotions: EmotionState[]
   sceneNumber: number
-  totalScenes?: number  // legacy — no longer displayed
-  host?: Host   // present on intro/recouple/bombshell/finale scenes
-  recoupleOrdinal?: number  // 1 = first recouple → rendered as "First Coupling"
+  totalScenes?: number
+  host?: Host
+  recoupleOrdinal?: number
 }
 
 export default function AsciiStage({ sceneType, participants, speakingAgentId, targetAgentId, emotions, sceneNumber, host, recoupleOrdinal }: Props) {
@@ -25,8 +25,6 @@ export default function AsciiStage({ sceneType, participants, speakingAgentId, t
     return emotions.find((e) => e.agentId === id)?.primary ?? 'neutral'
   }
 
-  // Base positions: spread all participants in a gentle arc across the stage,
-  // then nudge the active speaker forward and slightly toward their target.
   const basePositions = useMemo(() => {
     const result: Record<string, { left: number; bottom: number }> = {}
     const n = participants.length
@@ -79,7 +77,6 @@ export default function AsciiStage({ sceneType, participants, speakingAgentId, t
           const isSpeaking = agent.id === speakingAgentId
           const isTarget = agent.id === targetAgentId
 
-          // Speaker: drift forward (lower bottom, larger). Target: subtle lean toward speaker.
           const speakerBoost = isSpeaking ? 10 : 0
           const targetBoost = isTarget ? 4 : 0
           const speakerBase = isSpeaking || isTarget ? base.bottom + speakerBoost + targetBoost : base.bottom

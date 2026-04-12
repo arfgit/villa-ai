@@ -6,9 +6,9 @@ export type SceneType =
   | 'recouple'
   | 'date'
   | 'challenge'
-  | 'interview'   // confessional — 1 islander talking to camera
-  | 'bombshell'   // new contestant enters and steals a partner
-  | 'minigame'    // couples compete for a reward + bond boost
+  | 'interview'
+  | 'bombshell'
+  | 'minigame'
 
 export type Emotion =
   | 'happy' | 'flirty' | 'jealous' | 'angry'
@@ -32,9 +32,6 @@ export interface Agent {
   colorClass: string
 }
 
-// The host is a narrator / emcee figure. Not a contestant — never couples,
-// never eliminated, never scored. They appear in intros, recouples, bombshells.
-// Rendering fields match Agent so they can be drawn by AgentAscii.
 export interface Host {
   id: 'host'
   name: string
@@ -73,8 +70,8 @@ export type SystemEventType =
   | 'jealousy_spike'
   | 'couple_formed'
   | 'couple_broken'
-  | 'minigame_win'      // fromId = winning couple member; toId = their partner
-  | 'challenge_win'     // fromId = winning couple member; toId = their partner (big reward)
+  | 'minigame_win'
+  | 'challenge_win'
 
 export interface SystemEvent {
   id: string
@@ -101,16 +98,12 @@ export interface Couple {
   b: string
 }
 
-// Reward events for the RL-style learning loop. Computed automatically after
-// every scene based on observable state transitions (couples formed/broken,
-// eliminations, minigame wins, etc.). Each agent accumulates a trajectory
-// they can reflect on to update their policy.
 export interface RewardEvent {
   id: string
   sceneId: string
   sceneNumber: number
-  amount: number     // can be negative
-  reason: string     // human-readable reason string
+  amount: number
+  reason: string
   timestamp: number
 }
 
@@ -124,7 +117,7 @@ export interface AgentMemory {
   timestamp: number
   type: MemoryType
   content: string
-  importance: number  // 1-10 (LLM-rated)
+  importance: number
   embedding: number[]
   relatedAgentIds: string[]
 }
@@ -132,11 +125,11 @@ export interface AgentMemory {
 export interface AgentBrain {
   agentId: string
   memories: AgentMemory[]
-  goal: string                // current self-stated goal, updated by reflection
-  policy: string              // current strategy label (e.g. "loyal pursuer", "opportunistic flirt")
-  personalityShift: string    // accumulating drift from cast.ts baseline
-  rewards: RewardEvent[]      // reward trajectory for RL-style policy learning
-  cumulativeReward: number    // sum of all rewards so far
+  goal: string
+  policy: string
+  personalityShift: string
+  rewards: RewardEvent[]
+  cumulativeReward: number
   lastReflectionScene: number
 }
 
@@ -144,7 +137,7 @@ export type SeasonPhase = 'intro' | 'early' | 'midgame' | 'lategame' | 'finale_c
 
 export interface Episode {
   id: string
-  number: number                      // season number within this browser session
+  number: number
   title: string
   seasonTheme: string
   scenes: Scene[]
@@ -152,29 +145,20 @@ export interface Episode {
   emotions: EmotionState[]
   couples: Couple[]
   eliminatedIds: string[]
-  unpairedStreak: Record<string, number>  // deprecated, kept for type compat
+  unpairedStreak: Record<string, number>
   winnerCouple: Couple | null
   locations: Record<string, SceneType>
   brains: Record<string, AgentBrain>
-  activeCastIds: string[]             // who's actually in the villa right now (main cast + any bombshells that arrived)
-  bombshellsIntroduced: string[]      // bombshell ids that have arrived so far
-  soloSinceBombshell: Record<string, number>  // maps agentId → scene number when stolen (for per-scene penalty)
-  // Grace period tracking: when a bombshell steals someone's partner, the
-  // victim gets protected from elimination for the next 2 recouples. Maps
-  // agentId → the recouple ordinal at which their protection expires.
+  activeCastIds: string[]
+  bombshellsIntroduced: string[]
+  soloSinceBombshell: Record<string, number>
   graceExpiresAt: Record<string, number>
-  // This season's randomly-selected cast + bombshell pool. Sampled from the
-  // larger CAST_POOL / BOMBSHELL_POOL_ALL at episode creation time so each
-  // season runs with different contestants.
   castPool: Agent[]
   bombshellPool: Agent[]
-  sceneRotation: SceneType[]          // legacy — kept for fallback but no longer generated
-  // Dynamic season state
+  sceneRotation: SceneType[]
   seasonPhase: SeasonPhase
-  dramaScores: Record<string, number> // per-agent drama scores for pacing
-  /** Scene index when last bombshell arrived */
+  dramaScores: Record<string, number>
   lastBombshellScene: number | null
-  /** If set, a bombshell is in their dating window until this scene index */
   bombshellDatingUntilScene: number | null
   createdAt: number
   updatedAt: number
@@ -212,8 +196,6 @@ export interface LlmSceneResponse {
 export interface LlmBatchSceneResponse {
   scenes: LlmSceneResponse[]
 }
-
-// Fine-tuning / RL data export types
 
 export interface SeasonExport {
   version: 1
