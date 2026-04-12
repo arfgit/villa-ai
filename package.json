@@ -4,9 +4,10 @@
   "version": "0.2.0",
   "workspaces": ["shared", "client", "server"],
   "scripts": {
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "npm run dev -w client",
+    "dev": "concurrently -n server,client -c blue,magenta \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "vite",
     "dev:server": "npm run dev -w server",
+    "dev:local": "concurrently -n ollama,server,client -c green,blue,magenta \"OLLAMA_ORIGINS=* ollama serve\" \"npm run dev:server\" \"npm run dev:client\"",
     "build": "npm run build -w server && npm run build -w client",
     "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server"
   },
