@@ -1,28 +1,17 @@
 {
   "name": "villa-ai",
   "private": true,
-  "version": "0.1.0",
-  "type": "module",
+  "version": "0.2.0",
+  "workspaces": ["shared", "client", "server"],
   "scripts": {
-    "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
-  },
-  "dependencies": {
-    "@google/generative-ai": "^0.24.1",
-    "@tailwindcss/vite": "^4.2.2",
-    "clsx": "^2.1.1",
-    "nanoid": "^5.1.5",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4",
-    "tailwindcss": "^4.2.2",
-    "zustand": "^5.0.12"
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "dev:client": "npm run dev -w client",
+    "dev:server": "npm run dev -w server",
+    "build": "npm run build -w server && npm run build -w client",
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server"
   },
   "devDependencies": {
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^6.0.1",
-    "typescript": "~6.0.2",
-    "vite": "^8.0.4"
+    "concurrently": "^9.1.2",
+    "typescript": "~6.0.2"
   }
 }

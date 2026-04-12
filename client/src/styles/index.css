@@ -1,0 +1,112 @@
+@import "tailwindcss";
+
+@theme {
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+  --font-sans: "JetBrains Mono", ui-monospace, monospace;
+
+  --color-villa-bg: #0a0612;
+  --color-villa-bg-2: #130a20;
+  --color-villa-ink: #e8e2ff;
+  --color-villa-dim: #7a6f96;
+  --color-villa-pink: #ff6fb5;
+  --color-villa-sun: #ffb347;
+  --color-villa-aqua: #6be7ff;
+  --color-villa-love: #ff4d6d;
+  --color-villa-jealous: #b084ff;
+  --color-villa-trust: #6be7ff;
+}
+
+@layer base {
+  html, body, #root {
+    background: var(--color-villa-bg);
+    color: var(--color-villa-ink);
+    font-family: var(--font-mono);
+  }
+
+  body {
+    -webkit-font-smoothing: antialiased;
+  }
+
+  ::selection {
+    background-color: var(--color-villa-pink);
+    color: var(--color-villa-bg);
+  }
+}
+
+@keyframes villa-sway {
+  0%, 100% { transform: translateY(0); }
+  50% { transform: translateY(-2px); }
+}
+
+@keyframes villa-shimmer {
+  0%, 100% { opacity: 0.55; }
+  50% { opacity: 1; }
+}
+
+@keyframes villa-fadein {
+  from { opacity: 0; transform: translateY(4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes villa-bounce-talk {
+  0%, 100% { transform: translateY(0) scale(1.1); }
+  50% { transform: translateY(-3px) scale(1.12); }
+}
+
+@keyframes villa-water {
+  0%, 100% { opacity: 0.7; }
+  50% { opacity: 1; }
+}
+
+@keyframes villa-typewriter {
+  from { clip-path: inset(0 100% 0 0); }
+  to { clip-path: inset(0 0 0 0); }
+}
+
+@layer utilities {
+  .ascii {
+    white-space: pre;
+    line-height: 1.1;
+    letter-spacing: 0;
+    font-variant-ligatures: none;
+  }
+
+  .animate-villa-sway {
+    animation: villa-sway 2.4s ease-in-out infinite;
+  }
+
+  .animate-villa-shimmer {
+    animation: villa-shimmer 1.6s ease-in-out infinite;
+  }
+
+  .animate-villa-fadein {
+    animation: villa-fadein 0.4s ease-out;
+  }
+
+  .animate-villa-bounce-talk {
+    animation: villa-bounce-talk 0.6s ease-in-out infinite;
+  }
+
+  .animate-villa-water {
+    animation: villa-water 3s ease-in-out infinite;
+  }
+
+  .animate-villa-typewriter {
+    animation: villa-typewriter 0.8s steps(40) forwards;
+  }
+
+  .crt::after {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background: repeating-linear-gradient(
+      to bottom, transparent 0 2px, rgba(255,255,255,0.025) 2px 3px
+    );
+    z-index: 50;
+  }
+
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: var(--color-villa-dim); border-radius: 0; }
+}

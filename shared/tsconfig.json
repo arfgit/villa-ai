@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "ES2020",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "strict": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "composite": true,
+    "outDir": "./dist",
+    "declarationDir": "./dist",
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "declaration": true
+  },
+  "include": ["."]
+}

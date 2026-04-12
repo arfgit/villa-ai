@@ -1,7 +1,7 @@
-import type { LlmSceneResponse, Emotion, SystemEventType } from '@/types'
+import type { LlmSceneResponse, LlmBatchSceneResponse, Emotion, SystemEventType } from '@/types'
 
 const VALID_EMOTIONS: Emotion[] = ['happy', 'flirty', 'jealous', 'angry', 'sad', 'smug', 'anxious', 'bored', 'shocked', 'neutral']
-const VALID_EVENT_TYPES: SystemEventType[] = ['trust_change', 'attraction_change', 'jealousy_spike', 'couple_formed', 'couple_broken']
+const VALID_EVENT_TYPES: SystemEventType[] = ['trust_change', 'attraction_change', 'jealousy_spike', 'couple_formed', 'couple_broken', 'minigame_win', 'challenge_win']
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n))
@@ -17,8 +17,110 @@ function asEventType(v: unknown): SystemEventType {
   return 'trust_change'
 }
 
-export function parseAndValidate(raw: string, validAgentIds: string[]): LlmSceneResponse {
-  let cleaned = raw.trim()
+function stripTrailingCommas(s: string): string {
+  let out = ''
+  let inString = false
+  let escape = false
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!
+    if (escape) {
+      out += ch
+      escape = false
+      continue
+    }
+    if (ch === '\\' && inString) {
+      out += ch
+      escape = true
+      continue
+    }
+    if (ch === '"') {
+      inString = !inString
+      out += ch
+      continue
+    }
+    if (!inString && ch === ',') {
+      let j = i + 1
+      while (j < s.length && /\s/.test(s[j]!)) j++
+      if (j < s.length && (s[j] === ']' || s[j] === '}')) continue
+    }
+    out += ch
+  }
+  return out
+}
+
+function closeUnterminated(s: string): string {
+  const stack: string[] = []
+  let inString = false
+  let escape = false
+  let lastSafeLen = 0
+  let lastSafeStack = 0
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i]!
+    if (escape) {
+      escape = false
+      continue
+    }
+    if (inString) {
+      if (ch === '\\') {
+        escape = true
+        continue
+      }
+      if (ch === '"') {
+        inString = false
+      }
+      continue
+    }
+    if (ch === '"') {
+      inString = true
+      continue
+    }
+    if (ch === '{' || ch === '[') {
+      stack.push(ch)
+      continue
+    }
+    if (ch === '}' || ch === ']') {
+      stack.pop()
+      continue
+    }
+    if (ch === ',' && stack.length > 0) {
+      lastSafeLen = i
+      lastSafeStack = stack.length
+    }
+  }
+
+  if (!inString && stack.length === 0) return s
+
+  let truncated = s
+  if (inString || stack.length > lastSafeStack) {
+    truncated = s.slice(0, lastSafeLen)
+  }
+
+  const reStack: string[] = []
+  let reInString = false
+  let reEscape = false
+  for (let i = 0; i < truncated.length; i++) {
+    const ch = truncated[i]!
+    if (reEscape) { reEscape = false; continue }
+    if (reInString) {
+      if (ch === '\\') { reEscape = true; continue }
+      if (ch === '"') reInString = false
+      continue
+    }
+    if (ch === '"') { reInString = true; continue }
+    if (ch === '{' || ch === '[') reStack.push(ch)
+    else if (ch === '}' || ch === ']') reStack.pop()
+  }
+
+  let closing = ''
+  while (reStack.length > 0) {
+    const open = reStack.pop()
+    closing += open === '{' ? '}' : ']'
+  }
+  return truncated + closing
+}
+
+function repairAndParse(text: string): Record<string, unknown> {
+  let cleaned = text.trim()
 
   if (cleaned.startsWith('```')) {
     cleaned = cleaned.replace(/^```(?:json)?\n?/, '').replace(/\n?```$/, '')
@@ -28,14 +130,43 @@ export function parseAndValidate(raw: string, validAgentIds: string[]): LlmScene
   const lastBrace = cleaned.lastIndexOf('}')
   if (firstBrace !== -1 && lastBrace !== -1 && lastBrace > firstBrace) {
     cleaned = cleaned.slice(firstBrace, lastBrace + 1)
+  } else if (firstBrace !== -1) {
+    cleaned = cleaned.slice(firstBrace)
   }
 
-  const data = JSON.parse(cleaned) as Record<string, unknown>
+  try {
+    return JSON.parse(cleaned) as Record<string, unknown>
+  } catch {
+  }
+
+  const noTrailing = stripTrailingCommas(cleaned)
+  try {
+    return JSON.parse(noTrailing) as Record<string, unknown>
+  } catch {
+  }
+
+  const closed = closeUnterminated(noTrailing)
+  try {
+    return JSON.parse(closed) as Record<string, unknown>
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : 'parse failed'
+    throw new Error(`Could not repair LLM JSON: ${msg}`)
+  }
+}
+
+export function parseAndValidate(
+  raw: string,
+  validAgentIds: string[],
+  requiredSpeakerIds?: string[]
+): LlmSceneResponse {
+  const data = repairAndParse(raw)
 
   const dialogue = Array.isArray(data.dialogue) ? data.dialogue : []
   const systemEvents = Array.isArray(data.systemEvents) ? data.systemEvents : []
   const emotionUpdates = Array.isArray(data.emotionUpdates) ? data.emotionUpdates : []
-  const outcome = typeof data.outcome === 'string' ? data.outcome : 'The scene fades to commercial.'
+  const outcome = typeof data.outcome === 'string' && data.outcome.trim().length > 0
+    ? data.outcome.trim().slice(0, 500)
+    : 'The scene fades to commercial.'
 
   const validIds = new Set(validAgentIds)
 
@@ -50,7 +181,7 @@ export function parseAndValidate(raw: string, validAgentIds: string[]): LlmScene
     }))
     .slice(0, 12)
 
-  const validEvents = (systemEvents as Array<Record<string, unknown>>)
+  const allEvents = (systemEvents as Array<Record<string, unknown>>)
     .filter((e) => typeof e.label === 'string')
     .map((e) => ({
       type: asEventType(e.type),
@@ -59,7 +190,9 @@ export function parseAndValidate(raw: string, validAgentIds: string[]): LlmScene
       delta: typeof e.delta === 'number' ? clamp(e.delta, -15, 15) : undefined,
       label: (e.label as string).slice(0, 80),
     }))
-    .slice(0, 8)
+  const coupleEvents = allEvents.filter((e) => e.type === 'couple_formed' || e.type === 'couple_broken')
+  const otherEvents = allEvents.filter((e) => e.type !== 'couple_formed' && e.type !== 'couple_broken')
+  const validEvents = [...coupleEvents.slice(0, 10), ...otherEvents.slice(0, 8)]
 
   const validEmotions = (emotionUpdates as Array<Record<string, unknown>>)
     .filter((u) => typeof u.agentId === 'string' && validIds.has(u.agentId))
@@ -73,10 +206,60 @@ export function parseAndValidate(raw: string, validAgentIds: string[]): LlmScene
     throw new Error('Scene response had no valid dialogue lines')
   }
 
+  if (requiredSpeakerIds && requiredSpeakerIds.length > 0) {
+    const speakerSet = new Set(validDialogue.map((d) => d.agentId))
+    const REACTIONS = [
+      'cheers from the sideline',
+      'claps enthusiastically',
+      'watches intensely',
+      'lets out a whistle',
+      'nudges the person next to them',
+    ]
+    for (const id of requiredSpeakerIds) {
+      if (!speakerSet.has(id) && validIds.has(id)) {
+        const reaction = REACTIONS[Math.floor(Math.random() * REACTIONS.length)]!
+        validDialogue.push({
+          agentId: id,
+          text: `*${reaction}*`,
+          emotion: 'happy' as Emotion,
+          action: reaction,
+          targetAgentId: undefined,
+        })
+      }
+    }
+  }
+
   return {
     dialogue: validDialogue,
     systemEvents: validEvents,
     emotionUpdates: validEmotions,
     outcome,
   }
+}
+
+export function parseAndValidateBatch(
+  raw: string,
+  validAgentIds: string[],
+  requiredSpeakerIds?: string[]
+): LlmBatchSceneResponse {
+  const data = repairAndParse(raw)
+
+  if (Array.isArray(data.scenes)) {
+    const scenes: LlmSceneResponse[] = []
+    for (const sceneData of data.scenes as Array<Record<string, unknown>>) {
+      try {
+        const sceneJson = JSON.stringify(sceneData)
+        scenes.push(parseAndValidate(sceneJson, validAgentIds, requiredSpeakerIds))
+      } catch {
+        continue
+      }
+    }
+    if (scenes.length === 0) {
+      throw new Error('Batch response had no valid scenes')
+    }
+    return { scenes }
+  }
+
+  const single = parseAndValidate(raw, validAgentIds, requiredSpeakerIds)
+  return { scenes: [single] }
 }

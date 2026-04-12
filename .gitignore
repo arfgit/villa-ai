@@ -1,6 +1,29 @@
+# Dependencies
 node_modules
+
+# Environment
 .env
 .env.local
-.DS_Store
+.env.*.local
+
+# Build
 dist
+server/dist
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
 *.log
+npm-debug.log*
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Claude / AI tooling
+.claude/
+.serena/
