@@ -8,6 +8,20 @@ import type {
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3.2";
 
+// Explicit context-window size for every request. Ollama's own
+// OLLAMA_CONTEXT_LENGTH env var is only honored as a _default_ — its
+// VRAM-based auto-sizer overrides it in practice on machines with lots
+// of memory (observed: 48GB M3 Max picks default_num_ctx=262144 even
+// with OLLAMA_CONTEXT_LENGTH=8192 set). Result: the full KV cache for
+// that massive context is pre-allocated, forcing most model layers off
+// the GPU and onto CPU, which kills inference speed.
+//
+// Specifying num_ctx in the request body is client-controlled and
+// always wins. 8192 comfortably fits our prompts (~5000 tokens max)
+// and shrinks the KV cache enough that all model layers fit on GPU.
+// Override with env if you ever need more context.
+const NUM_CTX = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
+
 // How long to keep retrying a failed connection before giving up. Ollama
 // can take 5-10s to warm up the model on first request after startup;
 // during that window the runner is listening but generate requests fail
@@ -113,6 +127,7 @@ export async function generateSceneFromOllama(
             repeat_penalty: 1.15,
             presence_penalty: 0.3,
             num_predict: 4096,
+            num_ctx: NUM_CTX,
           },
         }),
       });
@@ -199,6 +214,7 @@ export async function generateBatchFromOllama(
             repeat_penalty: 1.15,
             presence_penalty: 0.3,
             num_predict: 8192, // larger for batch
+            num_ctx: NUM_CTX,
           },
         }),
       });
