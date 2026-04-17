@@ -37,11 +37,7 @@ import type { BuildArgs, SceneOutline } from "@villa-ai/shared";
 import { generateScene as generateSceneFromLlm } from "./llm";
 import { nextChallengeCategory, planBatch } from "./seasonPlanner";
 import { pickMinigame } from "./minigames";
-import {
-  cloneState,
-  applyRealizedScene,
-  type WorkingState,
-} from "./workingState";
+import { cloneState, type WorkingState } from "./workingState";
 import { createFallbackScene } from "./sceneFallback";
 import { trimSceneForPrompt } from "./scenePayload";
 
@@ -305,13 +301,27 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
 
   if (realizable.length === 0) return [];
 
-  // STAGE 2 — realize sequentially, threading a working-state simulator
-  // through the batch. Each scene's prompt sees the relationships /
-  // couples / emotions / recent-scenes as they would be AFTER the
-  // previous scenes in the batch have committed. On failure, we skip
-  // that outline but keep the working state as-is so subsequent scenes
-  // don't reference events that never happened.
-  const workingState = cloneState({
+  // STAGE 2 — realize in PARALLEL from the committed baseline.
+  //
+  // Each outline gets its own working-state clone built from the same
+  // baseline (committed episode state + this batch's scene-type stubs
+  // for correct sceneNumber advancement). Scenes DO NOT see each
+  // other's LLM outcomes within a batch — that's the tradeoff for
+  // going parallel. Over a 5-scene ambient batch that loses a few
+  // intra-batch attraction deltas in subsequent prompts; the LLM's
+  // imagination fills the gap just fine, and staleness is bounded
+  // because state-mutating types already end the batch (STOP_AFTER).
+  //
+  // On local Ollama with num_parallel=1 this is no slower than
+  // sequential — Ollama serializes internally. On Ollama with
+  // num_parallel>=2 (or on Gemini with real concurrency), this runs
+  // all N calls simultaneously, so cold-start fill time becomes
+  // max(single-scene-latency) instead of sum(single-scene-latency).
+  //
+  // Each scene stages its own working state with prior outlines'
+  // stubs so sceneNumber advances correctly — parallel doesn't mean
+  // "all scenes at the same slot index".
+  const baseline = cloneState({
     scenes: input.scenes.filter(
       (s): s is Scene => typeof (s as Scene).id === "string",
     ),
@@ -321,35 +331,51 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
     eliminatedIds: [],
   });
 
+  const runStartedAt = performance.now();
+  const settled = await Promise.allSettled(
+    realizable.map((outline) => {
+      // Per-outline working state: baseline + stubs for any prior
+      // outlines in this batch. Stubs give correct sceneNumber and
+      // recentScenes window without needing the prior outlines'
+      // LLM responses.
+      const perSceneState = cloneState(baseline);
+      for (let i = 0; i < outline.sequence && i < realizable.length; i++) {
+        const prior = realizable[i];
+        if (!prior) continue;
+        perSceneState.scenes.push({
+          type: prior.type,
+        } as unknown as Scene);
+      }
+      return realizeWithRetryAndFallback(
+        outline,
+        perSceneState,
+        input,
+        activeIds,
+      ).then((scene): QueuedScene | null => {
+        if (!scene) return null;
+        const queued: QueuedScene = { outline, scene };
+        try {
+          input.onSceneReady?.(queued);
+        } catch (cbErr) {
+          console.warn("[scene-prefetch] onSceneReady callback failed:", cbErr);
+        }
+        return queued;
+      });
+    }),
+  );
+
   const scenes: QueuedScene[] = [];
-  for (const outline of realizable) {
-    const scene = await realizeWithRetryAndFallback(
-      outline,
-      workingState,
-      input,
-      activeIds,
-    );
-    // Procedural scenes (recouple / minigame) whose two LLM attempts both
-    // failed return null — we refuse to synthesize a fallback for them
-    // because the fallback has no couple_formed / minigame_win events
-    // and committing it would leave the episode in a broken state
-    // (e.g. first coupling with zero couples). Better to stop the batch
-    // here and let the live-gen path handle it when the scene plays.
-    if (!scene) break;
-    const queued: QueuedScene = { outline, scene };
-    scenes.push(queued);
-    try {
-      input.onSceneReady?.(queued);
-    } catch (cbErr) {
-      console.warn("[scene-prefetch] onSceneReady callback failed:", cbErr);
+  for (const r of settled) {
+    if (r.status === "fulfilled" && r.value) {
+      scenes.push(r.value);
     }
-    // Working state advances regardless of whether this was a real LLM
-    // scene or a fallback — the fallback emits NO state-mutating events
-    // (no systemEvents, no emotionUpdates), so applying it is a no-op
-    // except for appending a stub scene to working.scenes so subsequent
-    // outlines see the scene count advance.
-    applyRealizedScene(workingState, outline.type, scene);
+    // Procedural fallbacks (null) + rejected promises both fall here
+    // silently — the store will live-gen when the scene plays.
   }
+  const runMs = Math.round(performance.now() - runStartedAt);
+  console.log(
+    `[timing] prefetch-batch size=${realizable.length} ready=${scenes.length} ms=${runMs}`,
+  );
   return scenes;
 }
 
@@ -379,10 +405,16 @@ async function realizeWithRetryAndFallback(
 ): Promise<LlmSceneResponse | null> {
   const maxAttempts = 2;
   let lastError: unknown = null;
+  const startedAt = performance.now();
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
     try {
       const buildArgs = buildArgsFor(outline, workingState, input);
-      return await generateSceneFromLlm(buildArgs, activeIds);
+      const scene = await generateSceneFromLlm(buildArgs, activeIds);
+      const ms = Math.round(performance.now() - startedAt);
+      console.log(
+        `[timing] prefetch seq=${outline.sequence} type=${outline.type} ok attempt=${attempt + 1} ms=${ms}`,
+      );
+      return scene;
     } catch (err) {
       lastError = err;
       const msg = err instanceof Error ? err.message : String(err);
@@ -392,15 +424,16 @@ async function realizeWithRetryAndFallback(
       );
     }
   }
+  const ms = Math.round(performance.now() - startedAt);
   if (FALLBACK_SAFE_TYPES.has(outline.type)) {
     console.warn(
-      `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — using ambient fallback.`,
+      `[timing] prefetch seq=${outline.sequence} type=${outline.type} fallback ms=${ms}`,
       lastError instanceof Error ? lastError.message : lastError,
     );
     return createFallbackScene(outline, input.activeCast);
   }
   console.warn(
-    `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — procedural scene, refusing fallback. Batch will stop here; live-gen will handle when played.`,
+    `[timing] prefetch seq=${outline.sequence} type=${outline.type} abort-procedural ms=${ms}`,
     lastError instanceof Error ? lastError.message : lastError,
   );
   return null;

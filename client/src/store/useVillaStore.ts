@@ -1442,7 +1442,14 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
               });
           })
           .filter((p): p is Promise<void> => p !== null);
+        const memStartedAt = performance.now();
         await Promise.all(retrievalTasks);
+        if (retrievalTasks.length > 0) {
+          const memMs = Math.round(performance.now() - memStartedAt);
+          console.log(
+            `[timing] memory-retrieval agents=${retrievalTasks.length} ms=${memMs}`,
+          );
+        }
       }
 
       // Pre-compute elimination for ceremony scenes so the LLM can write the drama
@@ -1709,10 +1716,15 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
               : "catching up...",
           },
         });
+        const llmStartedAt = performance.now();
         llm = await generateSceneFromLlm(
           buildArgs,
           validSceneIds,
           requiredSpeakers,
+        );
+        const llmMs = Math.round(performance.now() - llmStartedAt);
+        console.log(
+          `[timing] live-gen sceneNumber=${sceneNumber} type=${sceneType} ms=${llmMs}`,
         );
       }
 

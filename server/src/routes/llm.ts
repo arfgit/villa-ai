@@ -48,6 +48,7 @@ function sanitizeErrorMessage(msg: string): string {
 // NOT a pre-assembled prompt string — that's the injection surface we
 // closed by moving assembly here.
 llmRouter.post("/generate", async (req, res) => {
+  const reqStartedAt = Date.now();
   try {
     const { buildArgs, validAgentIds, requiredSpeakerIds } = req.body ?? {};
 
@@ -66,13 +67,21 @@ llmRouter.post("/generate", async (req, res) => {
         ? requiredSpeakerIds
         : undefined;
 
+    const promptStartedAt = Date.now();
     const prompt = await buildScenePrompt(args);
+    const promptMs = Date.now() - promptStartedAt;
+    const llmStartedAt = Date.now();
     const plannedBeats = args.sceneContext?.plannedBeats;
     const result = await generateScene(
       prompt,
       validAgentIds,
       required,
       plannedBeats,
+    );
+    const llmMs = Date.now() - llmStartedAt;
+    const totalMs = Date.now() - reqStartedAt;
+    console.log(
+      `[timing] /api/llm/generate sceneType=${args.sceneType} sceneNumber=${args.sceneNumber} prompt_ms=${promptMs} llm_ms=${llmMs} total_ms=${totalMs} prompt_chars=${prompt.length}`,
     );
     res.json(result);
   } catch (err) {
