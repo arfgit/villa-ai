@@ -8,10 +8,77 @@ import type {
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3.2";
 
+// How long to keep retrying a failed connection before giving up. Ollama
+// can take 5-10s to warm up the model on first request after startup;
+// during that window the runner is listening but generate requests fail
+// with "fetch failed" / ECONNREFUSED / socket reset. A handful of short
+// retries papers over that race without hiding a genuinely-down Ollama
+// for more than ~8s.
+const CONNECT_RETRY_ATTEMPTS = 4;
+const CONNECT_RETRY_DELAYS_MS = [500, 1500, 3000, 3000];
+
 interface OllamaResponse {
   response?: string;
   error?: string;
   done?: boolean;
+}
+
+function isConnectionError(err: unknown): boolean {
+  if (!(err instanceof Error)) return false;
+  const msg = err.message.toLowerCase();
+  // Node's undici throws "fetch failed" with a .cause wrapping ECONNREFUSED
+  // or similar. Ollama during model load returns ECONNREFUSED / ECONNRESET.
+  if (
+    msg.includes("fetch failed") ||
+    msg.includes("econnrefused") ||
+    msg.includes("econnreset") ||
+    msg.includes("socket hang up") ||
+    msg.includes("network error")
+  ) {
+    return true;
+  }
+  // Also check `cause` one level deep — Node wraps fetch errors.
+  const cause = (err as Error & { cause?: unknown }).cause;
+  if (cause instanceof Error) {
+    const causeMsg = cause.message.toLowerCase();
+    return (
+      causeMsg.includes("econnrefused") ||
+      causeMsg.includes("econnreset") ||
+      causeMsg.includes("socket hang up")
+    );
+  }
+  return false;
+}
+
+// Wrap a fetch so connection failures (Ollama runner still loading, dev
+// Ollama just restarted, etc.) are retried with short backoff. Other
+// errors — HTTP 4xx/5xx from a responsive Ollama, parse failures, etc.
+// — fall through untouched; the caller handles those.
+async function fetchWithConnectRetry(
+  url: string,
+  init: RequestInit,
+): Promise<Response> {
+  let lastErr: unknown = null;
+  for (let attempt = 0; attempt < CONNECT_RETRY_ATTEMPTS; attempt++) {
+    try {
+      return await fetch(url, init);
+    } catch (err) {
+      lastErr = err;
+      if (!isConnectionError(err)) {
+        throw err;
+      }
+      const delay = CONNECT_RETRY_DELAYS_MS[attempt] ?? 3000;
+      if (attempt === 0) {
+        console.log(
+          `[ollama] connection failed (${(err as Error).message}), retrying in ${delay}ms — model may still be loading`,
+        );
+      }
+      await new Promise((resolve) => setTimeout(resolve, delay));
+    }
+  }
+  throw lastErr instanceof Error
+    ? lastErr
+    : new Error("Ollama connection failed after retries");
 }
 
 export async function generateSceneFromOllama(
@@ -28,7 +95,7 @@ export async function generateSceneFromOllama(
   for (let attempt = 0; attempt < 2; attempt++) {
     let res: Response;
     try {
-      res = await fetch(`${host}/api/generate`, {
+      res = await fetchWithConnectRetry(`${host}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -117,7 +184,7 @@ export async function generateBatchFromOllama(
   for (let attempt = 0; attempt < 2; attempt++) {
     let res: Response;
     try {
-      res = await fetch(`${host}/api/generate`, {
+      res = await fetchWithConnectRetry(`${host}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
