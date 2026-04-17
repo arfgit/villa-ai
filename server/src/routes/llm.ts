@@ -20,6 +20,16 @@ function isValidAgentIdArray(raw: unknown): raw is string[] {
 // don't leak internals. Everything else gets a generic message; the full
 // error is still logged server-side for debugging.
 function sanitizeErrorMessage(msg: string): string {
+  // In non-production (local dev), always pass the real error through.
+  // The sanitize-everything default is a prod safety — we don't want
+  // internal details reaching random clients — but in dev it just
+  // hides the information the developer needs to debug. NODE_ENV is
+  // unset for most local `npm run dev` flows so this check defaults
+  // to "pass through" locally and "hide" on Cloud Functions deploys
+  // (which set NODE_ENV=production automatically).
+  if (process.env.NODE_ENV !== "production") {
+    return msg;
+  }
   const lower = msg.toLowerCase();
   const isRateLimit =
     lower.includes("rate limit") ||

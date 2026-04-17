@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useVillaStore, restoreFromServer } from "@/store/useVillaStore";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { changeTrack } from "@/lib/music";
@@ -35,31 +35,37 @@ export default function App() {
     restoreFromServer().finally(() => setIsRestoring(false));
   }, []);
 
-  // Warm-on-mount: the FIRST scene of a fresh episode is structurally
-  // live-gen (queue is empty by definition, nothing to prefetch), so
-  // the user always waited 15-40s between clicking "start show" and
-  // seeing any dialogue. We shortcut that by starting scene-0
-  // generation the instant the app finishes loading a fresh episode —
-  // well before the user reaches for the button. By the time they
-  // click "start show", scene 0 is already generating (maybe already
-  // ready). generateScene() is idempotent via its isGenerating guard,
-  // so clicking the button while warm is in flight is a no-op.
+  // Warm-on-mount: starts scene-0 generation as soon as the app
+  // finishes loading a fresh episode, so the ~15-40s LLM wallclock
+  // happens during app-load perceived-time instead of after the user
+  // clicks "start show". Clicking the button mid-warm is a no-op
+  // because generateScene has its own isGenerating guard.
   //
-  // Guards: only warm fresh episodes (no prior scenes, no winner, not
-  // paused) so we don't fire on a session-restore that already has
-  // scenes, or on the post-finale screen.
+  // CRITICAL: ref-gate by episode.id so this fires EXACTLY ONCE per
+  // episode. Without the ref, an LLM failure flips isGenerating
+  // back to false, which re-runs the effect (sceneCount is still 0,
+  // guards still pass), which re-fires generateScene, which fails
+  // again — infinite retry loop burning tokens. The ref marks the
+  // episode as already-warmed regardless of whether the warm
+  // succeeded, so a failed attempt doesn't auto-retry. If the user
+  // wants to retry after a failure, the retry button path handles
+  // that explicitly.
+  const warmedEpisodes = useRef(new Set<string>());
   useEffect(() => {
     if (isRestoring) return;
     if (sceneCount !== 0) return;
     if (isGenerating) return;
     if (episode.winnerCouple) return;
     if (ui.isPaused) return;
+    if (warmedEpisodes.current.has(episode.id)) return;
+    warmedEpisodes.current.add(episode.id);
     console.log("[warm-on-mount] starting scene 0 generation in background");
     generateScene();
   }, [
     isRestoring,
     sceneCount,
     isGenerating,
+    episode.id,
     episode.winnerCouple,
     ui.isPaused,
     generateScene,
