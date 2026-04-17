@@ -35,19 +35,37 @@ import type {
 } from "@/types";
 import type { BuildArgs } from "@villa-ai/shared";
 import { generateScene as generateSceneFromLlm } from "./llm";
-import { nextSceneType as planNextScene } from "./seasonPlanner";
+import {
+  nextSceneType as planNextScene,
+  nextChallengeCategory,
+} from "./seasonPlanner";
+import { pickMinigame } from "./minigames";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
-// Scene types we prefetch. Ambient social scenes — their prompts depend
-// only on cast + relationship state, not per-scene selections (interview
-// subject, reward-date couple, elimination narrative) the main path does.
+// Scene types we prefetch. Ambient social scenes have prompts that depend
+// only on cast + relationship state (no per-scene choices). Minigame is
+// also here because its setup (challengeCategory + minigameDefinition) is
+// derivable from current state via pure functions — so we can generate it
+// during playback of the previous scene. Still excluded:
+//   - recouple: needs recoupleScript built from live relationships, which
+//     a prior minigame may have just mutated
+//   - interview: needs interviewSubjectId picked from drama scores
+//   - date: needs reward-couple selection from a just-finished challenge
+//   - bombshell / casa_amor_*: needs arriving-cast selection + state change
 const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
   "firepit",
   "pool",
   "kitchen",
   "bedroom",
+  "minigame",
 ]);
+
+// Scene types that mutate game state enough that we can't reliably keep
+// generating PAST them (e.g., a minigame picks a winner couple, which
+// changes who's on a reward date next). Prefetch stops after queuing one
+// of these — the next cycle can resume from the fresh post-commit state.
+const STOP_AFTER_TYPES: ReadonlySet<SceneType> = new Set(["minigame"]);
 
 export function isBatchable(sceneType: SceneType): boolean {
   return BATCHABLE_TYPES.has(sceneType);
@@ -217,7 +235,28 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
       isIntroduction: false,
       isFinale: false,
     };
+
+    // Minigame-specific setup. Both functions are pure — challengeCategory
+    // alternates deterministically from past scenes, pickMinigame reads
+    // `recentGameNames` (last 6 game scenes). Same computation the main
+    // path does at commit time, so the prefetched scene gets the same
+    // game the user would have seen on live gen.
+    if (sceneType === "minigame") {
+      const category = nextChallengeCategory(input.scenes);
+      const recentGameNames = input.scenes
+        .slice(-6)
+        .filter((s) => s.type === "minigame" || s.type === "challenge")
+        .map((s) => s.title);
+      buildArgs.challengeCategory = category;
+      buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
+    }
+
     planned.push({ sceneType, buildArgs });
+
+    // Some scene types mutate state so heavily that continuing the
+    // lookahead from pre-mutation state would produce stale successors.
+    // Queue this one, then stop — next cycle resumes from fresh state.
+    if (STOP_AFTER_TYPES.has(sceneType)) break;
   }
 
   if (planned.length === 0) return [];

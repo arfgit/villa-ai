@@ -131,6 +131,7 @@ export default function SceneView() {
         recoupleOrdinal={recoupleOrdinal}
         announcedPairs={announcedPairs}
         focusedPair={focusedPair}
+        couples={episode.couples}
       />
 
       <div className="h-[200px] sm:h-[220px] flex flex-col flex-shrink-0">

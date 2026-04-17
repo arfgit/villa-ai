@@ -16,11 +16,9 @@ sessionRouter.post("/", async (req, res) => {
     const sessionId = req.headers["x-session-id"] as string;
     const { episode, cast } = req.body;
     if (!isValidSessionId(sessionId) || !episode?.id) {
-      res
-        .status(400)
-        .json({
-          error: "valid x-session-id header and episode with id are required",
-        });
+      res.status(400).json({
+        error: "valid x-session-id header and episode with id are required",
+      });
       return;
     }
     const existing = await getSession(sessionId);
@@ -42,7 +40,10 @@ sessionRouter.post("/", async (req, res) => {
   }
 });
 
-// GET /api/session/current — load session for the requesting client
+// GET /api/session/current — load session for the requesting client.
+// "No session yet" is a normal first-visit state, not an error — we
+// return 200 + `{session: null}` so the dev console doesn't log a noisy
+// 404 on every fresh page load.
 sessionRouter.get("/current", async (req, res) => {
   try {
     const sessionId = req.headers["x-session-id"] as string;
@@ -51,11 +52,7 @@ sessionRouter.get("/current", async (req, res) => {
       return;
     }
     const data = await getSession(sessionId);
-    if (!data) {
-      res.status(404).json({ error: "No session found" });
-      return;
-    }
-    res.json(data);
+    res.json(data ?? { session: null });
   } catch (err) {
     console.error("[session] load error:", err);
     res.status(500).json({ error: "Failed to load session" });

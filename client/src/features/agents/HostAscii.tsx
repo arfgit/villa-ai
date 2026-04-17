@@ -7,11 +7,15 @@ interface Props {
   speaking?: boolean;
 }
 
-// Host silhouette. The old design put `\🎤/` directly below the emoji head,
-// which read as a second chin more than a microphone. New design holds the
-// mic as a side prop, keeps the regal crown row, and animates the free arm
-// when the host is talking — so at a glance a viewer sees: crown → head →
-// person holding a mic, clearly distinct from the cast's \o/ silhouettes.
+// Host silhouette. The mic is rendered as an absolutely-positioned prop
+// beside the torso rather than inline on the arm row — otherwise the
+// extra character width pushes the rest of the body off-center (emoji
+// takes 2 char-widths, the whole arm line ends up ~3 chars wider on one
+// side, and a text-align:center container visually shifts everything).
+//
+// With absolute positioning, the torso stack (crown / head / arms /
+// legs / podium / name) is always vertically aligned on its own axis,
+// and the mic floats to the side without affecting layout.
 const IDLE_FRAMES = ["\\o/", "|o|", "/o\\"];
 const TALK_FRAMES = ["\\o/", "|o_", "\\o/", "_o|"];
 
@@ -30,7 +34,7 @@ export default function HostAscii({ host, speaking = false }: Props) {
   return (
     <div
       className={clsx(
-        "ascii inline-block text-center text-xs leading-[1.15] transition-all duration-200",
+        "ascii inline-flex flex-col items-center text-center text-xs leading-[1.15] transition-all duration-200 relative",
         "text-villa-sun",
         speaking && "animate-villa-bounce-talk",
       )}
@@ -42,7 +46,15 @@ export default function HostAscii({ host, speaking = false }: Props) {
         ♕
       </div>
       <div className="text-base leading-none">{host.emojiFace}</div>
-      <div className="whitespace-pre tracking-wider">{`🎤╾${pose}`}</div>
+      <div className="relative tracking-wider">
+        <span
+          aria-hidden="true"
+          className="absolute right-full mr-1 top-0 whitespace-nowrap"
+        >
+          🎤╾
+        </span>
+        {pose}
+      </div>
       <div>{"/ \\"}</div>
       <div
         aria-hidden="true"

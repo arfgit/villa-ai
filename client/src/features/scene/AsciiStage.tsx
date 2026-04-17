@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import clsx from "clsx";
-import type { Agent, EmotionState, SceneType, Host } from "@/types";
+import type { Agent, Couple, EmotionState, SceneType, Host } from "@/types";
 import { ENVIRONMENTS, getSceneLabel } from "@/data/environments";
 import AgentAscii from "@/features/agents/AgentAscii";
 import HostAscii from "@/features/agents/HostAscii";
@@ -17,6 +17,7 @@ interface Props {
   recoupleOrdinal?: number;
   announcedPairs?: Array<{ a: string; b: string }>;
   focusedPair?: { a: string; b: string } | null;
+  couples?: Couple[];
 }
 
 export default function AsciiStage({
@@ -30,6 +31,7 @@ export default function AsciiStage({
   recoupleOrdinal,
   announcedPairs,
   focusedPair,
+  couples = [],
 }: Props) {
   const env = ENVIRONMENTS[sceneType];
   const label = getSceneLabel(sceneType, recoupleOrdinal);
@@ -47,19 +49,29 @@ export default function AsciiStage({
       return result;
     }
 
-    // During a recouple, once a pair is announced we cluster those two agents
-    // side-by-side so the ceremony reads as couples forming in sequence
-    // instead of a still group shot. Unpaired agents line up on the front row.
-    const pairOrder = announcedPairs ?? [];
-    if (pairOrder.length > 0) {
+    // Cluster partners side-by-side whenever we know the pairings. During a
+    // recouple, `announcedPairs` is revealed progressively as the host calls
+    // each pairing — that takes priority. Otherwise, fall back to current
+    // `couples` so post-recouple scenes still show partners standing
+    // together. Paired agents go on the back row, singletons on the front.
+    const participantIds = new Set(participants.map((a) => a.id));
+    const scenePairs = (
+      announcedPairs && announcedPairs.length > 0
+        ? announcedPairs
+        : couples.filter(
+            (c) => participantIds.has(c.a) && participantIds.has(c.b),
+          )
+    ).slice();
+
+    if (scenePairs.length > 0) {
       const paired = new Set<string>();
-      for (const p of pairOrder) {
+      for (const p of scenePairs) {
         paired.add(p.a);
         paired.add(p.b);
       }
       const unpaired = participants.filter((a) => !paired.has(a.id));
-      pairOrder.forEach((pair, idx) => {
-        const t = pairOrder.length <= 1 ? 0.5 : idx / (pairOrder.length - 1);
+      scenePairs.forEach((pair, idx) => {
+        const t = scenePairs.length <= 1 ? 0.5 : idx / (scenePairs.length - 1);
         const center = 14 + t * 72;
         result[pair.a] = { left: center - 6, bottom: 56 };
         result[pair.b] = { left: center + 6, bottom: 56 };
@@ -90,7 +102,7 @@ export default function AsciiStage({
       result[agent.id] = { left, bottom };
     });
     return result;
-  }, [participants, announcedPairs]);
+  }, [participants, announcedPairs, couples]);
 
   return (
     <div className="border border-villa-pink/30 bg-villa-bg-2/40 p-3 sm:p-4">
