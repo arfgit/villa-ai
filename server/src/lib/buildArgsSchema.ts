@@ -348,7 +348,39 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   ) {
     return null;
   }
+  if (raw.outline !== undefined && !isValidSceneOutline(raw.outline)) {
+    return null;
+  }
   return raw as unknown as BuildArgs;
+}
+
+function isValidSceneOutline(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  if (typeof v.sequence !== "number" || v.sequence < 0 || v.sequence > 32) {
+    return false;
+  }
+  if (typeof v.type !== "string" || !VALID_SCENE_TYPES.has(v.type))
+    return false;
+  if (typeof v.location !== "string" || !VALID_SCENE_TYPES.has(v.location)) {
+    return false;
+  }
+  if (!isStringArray(v.participants, 64, MAX_CAST)) return false;
+  if (!isShortString(v.goal, 500)) return false;
+  if (typeof v.tension !== "number" || v.tension < 0 || v.tension > 100) {
+    return false;
+  }
+  if (!isShortString(v.stakes, 500)) return false;
+  if (!Array.isArray(v.subtext) || v.subtext.length > 6) return false;
+  if (!v.subtext.every((s: unknown) => isShortString(s, 300))) return false;
+  if (
+    v.dependsOnSequence !== undefined &&
+    (typeof v.dependsOnSequence !== "number" ||
+      v.dependsOnSequence < 0 ||
+      v.dependsOnSequence > 32)
+  ) {
+    return false;
+  }
+  return true;
 }
 
 const VALID_INTENTS: ReadonlySet<string> = new Set([

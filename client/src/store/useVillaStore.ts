@@ -1569,11 +1569,11 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;
       const queue = initial.sceneQueue;
-      // Find the first queued scene whose tagged sceneType matches — the
+      // Find the first queued scene whose outline type matches — the
       // prefetcher batches speculatively past non-batchable slots, so the
       // head might be a firepit tagged for a future scene while we're
       // currently doing a minigame. Skip-and-keep instead of discard.
-      const matchIdx = queue.findIndex((q) => q.sceneType === sceneType);
+      const matchIdx = queue.findIndex((q) => q.outline.type === sceneType);
       if (matchIdx >= 0) {
         llm = queue[matchIdx]!.scene;
         sceneWasQueued = true;

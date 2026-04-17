@@ -1,4 +1,5 @@
-import type { SceneType, Scene, CasaAmorState } from "@/types";
+import type { SceneType, Scene, CasaAmorState, Couple } from "@/types";
+import type { SceneOutline } from "@villa-ai/shared";
 
 export type SeasonPhase =
   | "intro"
@@ -315,4 +316,325 @@ export function nextChallengeCategory(
     if (s.challengeCategory === "explore_attraction") return "learn_facts";
   }
   return Math.random() < 0.5 ? "learn_facts" : "explore_attraction";
+}
+
+/* ── Batch planning ────────────────────────────────────────────────────── */
+
+// Narrative-role archetype per scene type — drives the outline's goal and
+// subtext copy. Keeps the director notes in a single place.
+function outlineShape(
+  sceneType: SceneType,
+  state: BatchPlanState,
+): { goal: string; stakes: string; subtext: string[]; tension: number } {
+  const { coupleCount, couplesList, activeCastCount } = state;
+  const hasCouples = coupleCount > 0;
+
+  switch (sceneType) {
+    case "introductions":
+      return {
+        goal: "Introduce every contestant and seed first-impression chemistry.",
+        stakes:
+          "First impressions stick — who reads as a safe bet vs a wildcard shapes every decision after.",
+        subtext: [
+          "everyone is performing a version of themselves",
+          "attractions are being clocked silently",
+        ],
+        tension: 20,
+      };
+    case "firepit":
+      return {
+        goal: hasCouples
+          ? "Let couples check in and gossip about each other — the first cracks show up at the firepit."
+          : "Build real chemistry before coupling — flirty testing of the waters.",
+        stakes: "Who feels secure vs threatened by the dynamic forming.",
+        subtext: hasCouples
+          ? [
+              "alliances over attraction",
+              "one person is overperforming their confidence",
+            ]
+          : [
+              "early favorites are forming",
+              "some people are already scanning for backups",
+            ],
+        tension: hasCouples ? 45 : 25,
+      };
+    case "pool":
+      return {
+        goal: "Lower-stakes hang — physical closeness nudges attractions harder than words have been.",
+        stakes: "Proximity chemistry vs stated preferences collide.",
+        subtext: [
+          "someone's partner is watching",
+          "the sun and skin raise the heat",
+        ],
+        tension: hasCouples ? 40 : 30,
+      };
+    case "kitchen":
+      return {
+        goal: "Morning-after gossip — who paired off, what was said, what wasn't.",
+        stakes: "Coffee-table truths can reshape the villa before lunch.",
+        subtext: [
+          "the girls and the boys are running parallel recaps",
+          "silence at the counter means something",
+        ],
+        tension: 35,
+      };
+    case "bedroom":
+      return {
+        goal: "Night falls, private conversations land hardest — confessions, fears, late pivots.",
+        stakes:
+          "Under the covers everyone drops the act. Who they chose to talk to matters.",
+        subtext: ["the walls are thin", "tomorrow's energy depends on tonight"],
+        tension: 50,
+      };
+    case "recouple":
+      return {
+        goal: hasCouples
+          ? "Recoupling ceremony — pairs break, new pairs form, one islander goes home."
+          : "First coupling — pair up based on the chemistry built in the first days.",
+        stakes: hasCouples
+          ? "Every wrong pick risks eliminating someone important."
+          : "This is the pairing that frames the first arc of the season.",
+        subtext: [
+          "the choice is a statement, not just a pairing",
+          hasCouples
+            ? "old partners are watching the new choice like a verdict"
+            : "nobody wants to be the one not picked",
+        ],
+        tension: hasCouples ? 85 : 60,
+      };
+    case "date":
+      return {
+        goal: "A single couple alone — unguarded honesty about where the relationship actually is.",
+        stakes: "Real answers about whether this pairing is genuine.",
+        subtext: [
+          "the villa noise falls away",
+          "one of them wants a bigger conversation than the other is ready for",
+        ],
+        tension: 55,
+      };
+    case "challenge":
+    case "minigame":
+      return {
+        goal: "A game that exposes what couples really think about each other.",
+        stakes:
+          "Winners get a reward date. Losers lose face in front of the villa.",
+        subtext: [
+          "the quiz answers reveal gaps in knowledge",
+          "trash talk lands differently when the group is watching",
+        ],
+        tension: 50,
+      };
+    case "bombshell":
+      return {
+        goal: "A new islander arrives — heads should turn and every existing pair should wobble.",
+        stakes: "Comfortable couples are suddenly not safe.",
+        subtext: [
+          "the new arrival is sizing up who's gettable",
+          "partners are watching their partners' reactions",
+        ],
+        tension: 80,
+      };
+    case "interview":
+      return {
+        goal: "A solo confessional — the contestant speaks honestly to the audience about their real read on the villa.",
+        stakes:
+          "What they say here diverges from what they've been performing on camera.",
+        subtext: [
+          "the mask slips",
+          "they have a strategy they haven't admitted aloud",
+        ],
+        tension: 40,
+      };
+    case "public_vote":
+    case "islander_vote":
+    case "producer_twist":
+      return {
+        goal: "Eliminate an islander — frame the loss with real emotional weight.",
+        stakes: `One of the ${activeCastCount} remaining islanders is leaving tonight.`,
+        subtext: [
+          "their partner's reaction is the real story",
+          "relief and grief share the same room",
+        ],
+        tension: 90,
+      };
+    case "casa_amor_arrival":
+    case "casa_amor_date":
+    case "casa_amor_challenge":
+    case "casa_amor_stickswitch":
+      return {
+        goal: "Casa Amor chaos — loyalty tested against temptation.",
+        stakes: "Every existing couple can be rewritten tonight.",
+        subtext: [
+          "distance makes the heart do weird things",
+          "the absent partner is a ghost in every conversation",
+        ],
+        tension: 90,
+      };
+    case "grand_finale":
+      return {
+        goal: "Crown the winning couple — the whole season lands here.",
+        stakes: "The public vote decides. Both finalists get their moment.",
+        subtext: [
+          "this is the ending of the character arc, not just the show",
+          "every couple has earned a callback",
+        ],
+        tension: 100,
+      };
+    // Unreachable via planner today but typed-exhaustive.
+    default: {
+      // Fallback so additions to SceneType don't silently produce empty outlines.
+      return {
+        goal: `Advance the ${couplesList.length}-couple villa state through a ${sceneType} beat.`,
+        stakes: "Something shifts that matters for next scene.",
+        subtext: ["undercurrents that haven't surfaced yet"],
+        tension: 40,
+      };
+    }
+  }
+}
+
+// Participant-picking heuristic. Keeps the pick size + cast relevant to
+// the scene type — procedural scenes want everyone, ambient scenes want
+// a dramatic subset tied to recent events.
+function pickParticipants(
+  sceneType: SceneType,
+  state: BatchPlanState,
+): string[] {
+  const { activeCastIds, couplesList } = state;
+  // Ensemble scenes need everyone in earshot.
+  if (
+    sceneType === "introductions" ||
+    sceneType === "recouple" ||
+    sceneType === "bombshell" ||
+    sceneType === "minigame" ||
+    sceneType === "challenge" ||
+    sceneType === "public_vote" ||
+    sceneType === "islander_vote" ||
+    sceneType === "producer_twist" ||
+    sceneType === "grand_finale" ||
+    sceneType.startsWith("casa_amor")
+  ) {
+    return [...activeCastIds];
+  }
+  // Date scenes are a single pair.
+  if (sceneType === "date") {
+    const firstCouple = couplesList[0];
+    if (firstCouple) return [firstCouple.a, firstCouple.b];
+    // No couples yet — return 2 random active for a pre-coupling date.
+    return activeCastIds.slice(0, 2);
+  }
+  // Interview is solo.
+  if (sceneType === "interview") {
+    return activeCastIds.slice(0, 1);
+  }
+  // Ambient social scenes (firepit/pool/kitchen/bedroom) — 3-5 islanders
+  // pulled from the front of the active cast. Deterministic by list
+  // order so two sequential calls with the same input give the same
+  // picks (avoids surprise randomness in the outline).
+  const groupSize = Math.max(
+    3,
+    Math.min(5, Math.floor(activeCastIds.length / 2)),
+  );
+  return activeCastIds.slice(0, groupSize);
+}
+
+// Captures only the planner-relevant shape of the state so callers don't
+// have to pass the full Episode. Derived once per batch, advanced per
+// outline during planning.
+interface BatchPlanState {
+  scenes: Scene[];
+  activeCastIds: string[];
+  activeCastCount: number;
+  bombshellsIntroduced: number;
+  bombshellPoolSize: number;
+  couplesList: Couple[];
+  coupleCount: number;
+  lastBombshellScene: number | null;
+  bombshellDatingUntilScene: number | null;
+  avgDramaScore: number;
+  casaAmorState: CasaAmorState | null;
+}
+
+export interface PlanBatchInput {
+  scenes: Scene[];
+  activeCastIds: string[];
+  couples: Couple[];
+  bombshellsIntroduced: number;
+  bombshellPoolSize: number;
+  lastBombshellScene: number | null;
+  bombshellDatingUntilScene: number | null;
+  avgDramaScore: number;
+  casaAmorState: CasaAmorState | null;
+  batchSize: number;
+}
+
+/**
+ * Plan the next batch of scene outlines.
+ *
+ * Walks the scene-type planner forward `batchSize` steps, building an
+ * outline per step with a narrative goal / stakes / subtext drawn from
+ * the scene type and the current villa state. Deterministic given the
+ * input — no LLM call, no side effects.
+ *
+ * The batch is a mini-arc: each outline's simulated advance updates the
+ * planner's view of scene count and couples so downstream types react
+ * to what came before (e.g. if Scene 21 is a recouple, Scene 22's
+ * tension bumps because hasCouples is now true).
+ */
+export function planBatch(input: PlanBatchInput): SceneOutline[] {
+  const outlines: SceneOutline[] = [];
+  const simulatedTypes: SceneType[] = [];
+
+  const makeBatchState = (): BatchPlanState => ({
+    scenes: [
+      ...input.scenes,
+      ...simulatedTypes.map((type) => ({ type }) as unknown as Scene),
+    ],
+    activeCastIds: input.activeCastIds,
+    activeCastCount: input.activeCastIds.length,
+    bombshellsIntroduced: input.bombshellsIntroduced,
+    bombshellPoolSize: input.bombshellPoolSize,
+    couplesList: input.couples,
+    coupleCount: input.couples.length,
+    lastBombshellScene: input.lastBombshellScene,
+    bombshellDatingUntilScene: input.bombshellDatingUntilScene,
+    avgDramaScore: input.avgDramaScore,
+    casaAmorState: input.casaAmorState ?? null,
+  });
+
+  for (let i = 0; i < input.batchSize; i++) {
+    const batchState = makeBatchState();
+    const sceneType = nextSceneType({
+      scenes: batchState.scenes,
+      activeCastCount: batchState.activeCastCount,
+      bombshellsIntroduced: batchState.bombshellsIntroduced,
+      bombshellPoolSize: batchState.bombshellPoolSize,
+      coupleCount: batchState.coupleCount,
+      lastBombshellScene: batchState.lastBombshellScene,
+      bombshellDatingUntilScene: batchState.bombshellDatingUntilScene,
+      avgDramaScore: batchState.avgDramaScore,
+      casaAmorState: batchState.casaAmorState,
+      recoupleCount: batchState.scenes.filter((s) => s.type === "recouple")
+        .length,
+    });
+
+    const shape = outlineShape(sceneType, batchState);
+    outlines.push({
+      sequence: i,
+      type: sceneType,
+      participants: pickParticipants(sceneType, batchState),
+      location: sceneType,
+      goal: shape.goal,
+      tension: shape.tension,
+      stakes: shape.stakes,
+      subtext: shape.subtext,
+      // Simple linear dependency: every scene depends on the one before
+      // it because the working state is threaded forward. Topo-sort
+      // comes in a later step (10); for now every i > 0 depends on i-1.
+      dependsOnSequence: i === 0 ? undefined : i - 1,
+    });
+    simulatedTypes.push(sceneType);
+  }
+
+  return outlines;
 }

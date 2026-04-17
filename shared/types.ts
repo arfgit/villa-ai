@@ -489,4 +489,50 @@ export interface BuildArgs {
   sceneContext?: SceneContext;
   recoupleScript?: RecoupleScript;
   minigameDefinition?: MinigameDefinition;
+  // When prefetched, the outline the batch planner sketched for this scene.
+  // The prompt injects goal / tension / stakes / subtext as director notes
+  // so the LLM realizes an intentional beat instead of drifting.
+  outline?: SceneOutline;
+}
+
+/* ── Scene outlines (batch planner) ────────────────────────────────────── */
+
+// A scene outline is the pre-realization sketch produced by planBatch.
+// The batch generator takes a list of these and realizes each into a full
+// scene (dialogue + events). Outlines carry narrative intent — goal,
+// stakes, tension — so the batch reads as a planned arc rather than N
+// independent scenes glued together.
+export interface SceneOutline {
+  sequence: number; // 0-indexed position within the batch
+  type: SceneType;
+  participants: string[]; // agent ids expected to speak
+  location: SceneType; // scene location / environment (same enum as type)
+  goal: string; // what this scene accomplishes for the arc
+  tension: number; // 0-100 — how heated this beat should read
+  stakes: string; // what's at risk by scene end
+  subtext: string[]; // 0-3 things the dialogue implies but doesn't say outright
+  // If set, the sequence index this outline depends on. The realizer must
+  // generate the dependency first so the working state reflects its
+  // outcome before this outline's prompt is built. Simple linear deps for
+  // MVP (Scene[i] may depend on Scene[i-1]); full dep graph deferred.
+  dependsOnSequence?: number;
+}
+
+// Lifecycle wrapper used by the queue / metrics. The scene field is
+// populated once realization completes; it stays undefined while the
+// outline is still in flight.
+export type ReadySceneStatus =
+  | "planned"
+  | "generating"
+  | "ready"
+  | "playing"
+  | "played"
+  | "failed";
+
+export interface ReadyScene {
+  outline: SceneOutline;
+  scene?: LlmSceneResponse;
+  status: ReadySceneStatus;
+  // How many realization attempts have been made (for retry accounting).
+  attempts: number;
 }

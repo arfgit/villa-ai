@@ -33,13 +33,15 @@ import type {
   Scene,
   SceneType,
 } from "@/types";
-import type { BuildArgs } from "@villa-ai/shared";
+import type { BuildArgs, SceneOutline } from "@villa-ai/shared";
 import { generateScene as generateSceneFromLlm } from "./llm";
-import {
-  nextSceneType as planNextScene,
-  nextChallengeCategory,
-} from "./seasonPlanner";
+import { nextChallengeCategory, planBatch } from "./seasonPlanner";
 import { pickMinigame } from "./minigames";
+import {
+  cloneState,
+  applyRealizedScene,
+  type WorkingState,
+} from "./workingState";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
@@ -89,10 +91,6 @@ const TARGET_QUEUE_DEPTH = 5;
 // while letting the queue drain to 2 before re-filling.
 const TOPUP_THRESHOLD = 3;
 
-// How many slots ahead we'll PLAN past a non-batchable scene. Each slot
-// we skip is one less LLM call; this bounds the waste.
-const MAX_LOOKAHEAD = 8;
-
 export interface PrefetchPolicy {
   gapToFill: number;
 }
@@ -135,12 +133,19 @@ export interface PrefetchInput {
   gapToFill: number;
 }
 
-// A prefetched scene keeps the sceneType it was generated FOR. At
-// consumption time, the store checks this tag against the freshly-planned
-// sceneType and only pops on a match. Mismatched entries stay at the head
-// of the queue until the planner lines up with them.
+// A prefetched scene keeps the OUTLINE it was realized against. At
+// consumption time, the store matches on `outline.type` to confirm the
+// queued scene is still relevant for the current slot. Entries whose
+// type no longer matches stay in the queue until the planner lines up
+// with them — we don't discard on mismatch because the planner is
+// nondeterministic (Math.random in tiebreakers).
+//
+// Keeping the outline (not just the type) means the consumer also has
+// access to goal / tension / stakes / subtext — useful for metrics,
+// debugging, and downstream features that want to know the intent
+// behind a queued scene.
 export interface QueuedScene {
-  sceneType: SceneType;
+  outline: SceneOutline;
   scene: LlmSceneResponse;
 }
 
@@ -160,19 +165,6 @@ export function isPrefetchInFlight(): boolean {
 // only clears the flag so a NEW run can start.
 export function resetPrefetchState(): void {
   inFlight = false;
-}
-
-function simulateFutureScenes(
-  existing: Scene[],
-  plannedTypes: SceneType[],
-): Scene[] {
-  // Planner reads `scenes.length`, `scenes.filter(type === 'recouple')`, etc.
-  // Stub scenes with just the `type` field — other fields are not consulted
-  // by the planner's branching logic.
-  return [
-    ...existing,
-    ...plannedTypes.map((type) => ({ type }) as unknown as Scene),
-  ];
 }
 
 /**
@@ -200,112 +192,138 @@ export async function prefetchScenes(
   }
 }
 
-async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
-  const activeIds = input.activeCast.map((a) => a.id);
-  const recoupleCount = input.scenes.filter(
-    (s) => s.type === "recouple",
-  ).length;
-
-  // `input.scenes` may contain stub scenes ({type: X} only) when the caller
-  // simulated an in-progress scene for lookahead. Those are fine for
-  // planning (planner only reads `.type`) but must NOT leak into
-  // `recentScenes` — that field flows to the server where coerceBuildArgs
-  // requires every scene to have id + dialogue[] + systemEvents[] etc. A
-  // real scene has a string `id`; stubs don't.
-  const realScenes = input.scenes.filter(
+// Build BuildArgs for a single outline. Takes a WorkingState snapshot so
+// the prompt sees relationships / couples / emotions as they would be
+// AFTER the previous scenes in the batch have committed — not the stale
+// committed-episode view from the top of the batch.
+function buildArgsFor(
+  outline: SceneOutline,
+  working: WorkingState,
+  input: PrefetchInput,
+): BuildArgs {
+  // recentScenes on the wire must be REAL scenes (have an id). Working
+  // state contains stub scenes (id-less) appended by applyRealizedScene
+  // to advance the planner — those are client-only.
+  const realScenes = working.scenes.filter(
     (s): s is Scene => typeof (s as Scene).id === "string",
   );
 
-  const planned: Array<{ sceneType: SceneType; buildArgs: BuildArgs }> = [];
-  const simulatedTypes: SceneType[] = [];
-  let stepsExamined = 0;
+  const buildArgs: BuildArgs = {
+    cast: input.activeCast,
+    relationships: working.relationships,
+    emotions: working.emotions,
+    couples: working.couples,
+    recentScenes: realScenes.slice(-3),
+    sceneType: outline.type,
+    seasonTheme: input.seasonTheme,
+    sceneNumber: realScenes.length + 1,
+    isIntroduction: false,
+    isFinale: false,
+    outline,
+  };
 
-  while (planned.length < input.gapToFill && stepsExamined < MAX_LOOKAHEAD) {
-    stepsExamined++;
-
-    const sceneType = planNextScene({
-      scenes: simulateFutureScenes(input.scenes, simulatedTypes),
-      activeCastCount: input.activeCast.length,
-      bombshellsIntroduced: input.bombshellsIntroduced.length,
-      bombshellPoolSize: input.bombshellPool.length,
-      coupleCount: input.couples.length,
-      lastBombshellScene: input.lastBombshellScene,
-      bombshellDatingUntilScene: input.bombshellDatingUntilScene,
-      avgDramaScore: input.avgDramaScore,
-      casaAmorState: input.casaAmorState,
-      recoupleCount,
-    });
-
-    // Stop at the first non-batchable slot. Continuing past would generate
-    // scenes against stale state (see the module-level comment).
-    const combinedScenes = simulateFutureScenes(input.scenes, simulatedTypes);
-    if (!isBatchable(sceneType, combinedScenes)) break;
-    simulatedTypes.push(sceneType);
-
-    const buildArgs: BuildArgs = {
-      cast: input.activeCast,
-      relationships: input.relationships,
-      emotions: input.emotions,
-      couples: input.couples,
-      recentScenes: realScenes.slice(-3),
-      sceneType,
-      seasonTheme: input.seasonTheme,
-      sceneNumber: input.scenes.length + simulatedTypes.length,
-      isIntroduction: false,
-      isFinale: false,
-    };
-
-    // Minigame-specific setup. Both functions are pure — challengeCategory
-    // alternates deterministically from past scenes, pickMinigame reads
-    // `recentGameNames` (last 6 game scenes). Same computation the main
-    // path does at commit time, so the prefetched scene gets the same
-    // game the user would have seen on live gen.
-    if (sceneType === "minigame") {
-      const category = nextChallengeCategory(realScenes);
-      const recentGameNames = realScenes
-        .slice(-6)
-        .filter((s) => s.type === "minigame" || s.type === "challenge")
-        .map((s) => s.title);
-      buildArgs.challengeCategory = category;
-      buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
-    }
-
-    // First-coupling setup. When we prefetch the season's first recouple,
-    // we can't build a recoupleScript (that reads relationships which may
-    // still be mutating during scene 0 playback), so we let the LLM pick
-    // the pairings freely — the prompt's first-coupling branch doesn't
-    // require the script. The store then creates Couple entries from
-    // whatever couple_formed events the scene emits.
-    if (sceneType === "recouple") {
-      buildArgs.isFirstCoupling = true;
-    }
-
-    planned.push({ sceneType, buildArgs });
-
-    // Some scene types mutate state so heavily that continuing the
-    // lookahead from pre-mutation state would produce stale successors.
-    // Queue this one, then stop — next cycle resumes from fresh state.
-    if (STOP_AFTER_TYPES.has(sceneType)) break;
+  // Minigame setup derived from working state so mid-batch challenge
+  // rotation tracks the batch's prior games, not just the committed
+  // history.
+  if (outline.type === "minigame") {
+    const category = nextChallengeCategory(working.scenes);
+    const recentGameNames = working.scenes
+      .slice(-6)
+      .filter((s) => s.type === "minigame" || s.type === "challenge")
+      .map((s) => s.title)
+      .filter((t): t is string => typeof t === "string" && t.length > 0);
+    buildArgs.challengeCategory = category;
+    buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
   }
 
-  if (planned.length === 0) return [];
+  // First-coupling: the prompt's first-coupling branch reads
+  // isFirstCoupling directly, so this only needs to fire when no prior
+  // recouple exists in working state (which already reflects earlier
+  // batch scenes).
+  if (outline.type === "recouple") {
+    const hadPriorRecouple = working.scenes.some((s) => s.type === "recouple");
+    buildArgs.isFirstCoupling = !hadPriorRecouple;
+  }
 
-  const settled = await Promise.allSettled(
-    planned.map((p) =>
-      generateSceneFromLlm(p.buildArgs, activeIds).then(
-        (scene): QueuedScene => ({ sceneType: p.sceneType, scene }),
-      ),
+  return buildArgs;
+}
+
+async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
+  const activeIds = input.activeCast.map((a) => a.id);
+
+  // STAGE 1 — plan the batch as an arc. planBatch walks the season planner
+  // forward input.gapToFill steps and returns an outline per step with
+  // goal / tension / stakes / subtext already populated. Deterministic,
+  // no LLM call.
+  const outlines = planBatch({
+    scenes: input.scenes,
+    activeCastIds: activeIds,
+    couples: input.couples,
+    bombshellsIntroduced: input.bombshellsIntroduced.length,
+    bombshellPoolSize: input.bombshellPool.length,
+    lastBombshellScene: input.lastBombshellScene,
+    bombshellDatingUntilScene: input.bombshellDatingUntilScene,
+    avgDramaScore: input.avgDramaScore,
+    casaAmorState: input.casaAmorState,
+    batchSize: input.gapToFill,
+  });
+
+  // Filter outlines down to ones we can actually realize. isBatchable
+  // encodes the "we have enough state to prompt this cleanly" rules.
+  // Once we hit a non-batchable outline, stop — continuing would realize
+  // scenes against pre-mutation state (e.g. a firepit after a yet-to-run
+  // recouple).
+  const realizable: SceneOutline[] = [];
+  const combinedScenes = [...input.scenes];
+  for (const outline of outlines) {
+    const snapshot = [...combinedScenes];
+    if (!isBatchable(outline.type, snapshot)) break;
+    realizable.push(outline);
+    combinedScenes.push({ type: outline.type } as unknown as Scene);
+    // Scenes whose outcomes heavily reshape state (minigame winner picks
+    // a reward date, recouple pair-forms couples) still mark batch end
+    // even with the working-state simulator — their outcomes depend on
+    // store-side side effects (rewards, eliminations) we're not
+    // replicating in working state.
+    if (STOP_AFTER_TYPES.has(outline.type)) break;
+  }
+
+  if (realizable.length === 0) return [];
+
+  // STAGE 2 — realize sequentially, threading a working-state simulator
+  // through the batch. Each scene's prompt sees the relationships /
+  // couples / emotions / recent-scenes as they would be AFTER the
+  // previous scenes in the batch have committed. On failure, we skip
+  // that outline but keep the working state as-is so subsequent scenes
+  // don't reference events that never happened.
+  const workingState = cloneState({
+    scenes: input.scenes.filter(
+      (s): s is Scene => typeof (s as Scene).id === "string",
     ),
-  );
+    relationships: input.relationships,
+    emotions: input.emotions,
+    couples: input.couples,
+    eliminatedIds: [],
+  });
 
   const scenes: QueuedScene[] = [];
-  for (const r of settled) {
-    if (r.status === "fulfilled") {
-      scenes.push(r.value);
-    } else {
-      const msg =
-        r.reason instanceof Error ? r.reason.message : String(r.reason);
-      console.warn("[scene-prefetch] scene failed:", msg);
+  for (const outline of realizable) {
+    try {
+      const buildArgs = buildArgsFor(outline, workingState, input);
+      const scene = await generateSceneFromLlm(buildArgs, activeIds);
+      scenes.push({ outline, scene });
+      applyRealizedScene(workingState, outline.type, scene);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[scene-prefetch] scene failed (outline seq ${outline.sequence}, type ${outline.type}):`,
+        msg,
+      );
+      // Don't advance working state — next outline uses state as it was
+      // before the failed attempt. Without a fallback-scene step (#8 in
+      // the migration plan) the whole rest of the batch aborts; the next
+      // triggerPrefetch will retry from fresh committed state.
+      break;
     }
   }
   return scenes;

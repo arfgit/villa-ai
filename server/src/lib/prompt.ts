@@ -143,6 +143,7 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
     sceneContext,
     recoupleScript,
     minigameDefinition,
+    outline,
   } = args;
   const sceneInfo = SCENE_LABELS[sceneType];
 
@@ -832,7 +833,23 @@ ${brainBlock}
 ## THIS SCENE (number ${sceneNumber})
 Type: ${sceneType}
 Title: ${sceneInfo.title}
-Participants: ${participantsClause}
+Participants: ${participantsClause}${
+    outline
+      ? `
+
+### DIRECTOR NOTES (from batch arc planning — this scene's role in the week)
+- Goal: ${clip(outline.goal, 400)}
+- Tension target: ${outline.tension}/100
+- Stakes: ${clip(outline.stakes, 400)}${
+          outline.subtext.length > 0
+            ? `
+- Subtext (implied, not said outright):
+${outline.subtext.map((s) => `  • ${clip(s, 300)}`).join("\n")}`
+            : ""
+        }
+These notes come from the planner that sketched this scene's role in the current 5-scene arc. The DIALOGUE DIRECTION below is how to dramatize them — both must agree, but if there's any conflict, the director notes set the intent and the direction sets the shape.`
+      : ""
+  }
 Direction: ${direction}${antiPatternsBlock}
 
 ## RULES
