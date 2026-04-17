@@ -118,7 +118,7 @@ interface VillaState {
 
   startNewEpisode: () => void;
   generateScene: (type?: SceneType) => Promise<void>;
-  triggerPrefetch: () => void;
+  triggerPrefetch: (inProgressSceneType?: SceneType) => void;
   advanceLine: () => void;
   resetLineIndex: () => void;
   toggleCast: () => void;
@@ -946,19 +946,36 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
-  // Fire-and-forget prefetch trigger. Callable from post-commit (in
-  // generateScene) OR from playback-start (useScenePlayback). Idempotent
-  // by design — the prefetch runner has its own single-flight guard, and
-  // planPrefetch returns null when the queue is already deep enough.
-  triggerPrefetch: () => {
+  // Fire-and-forget prefetch trigger. Callable from three sites:
+  //   1. generateScene START — pass the in-progress sceneType so the
+  //      planner simulates it as already-committed. Scene N+1 starts
+  //      generating in parallel with scene N (LLM wallclock overlap).
+  //   2. generateScene post-commit — no arg, tops up from fresh state.
+  //   3. useScenePlayback on line 0 — belt-and-braces if (1) and (2)
+  //      didn't fill the queue enough.
+  // Idempotent: the runner has a single-flight guard, and planPrefetch
+  // returns null when the queue is already deep enough.
+  triggerPrefetch: (inProgressSceneType) => {
     const state = get();
     if (state.episode.winnerCouple) return;
     const activeCast = state.cast.filter(
       (a) => !state.episode.eliminatedIds.includes(a.id),
     );
+
+    // If a scene is currently being generated (but not yet committed),
+    // simulate it in the scene list so the planner predicts the NEXT
+    // slot, not the current one. Without this, firing at generateScene
+    // start would just re-predict the scene that's already in flight.
+    const simulatedScenes = inProgressSceneType
+      ? [
+          ...state.episode.scenes,
+          { type: inProgressSceneType } as unknown as Scene,
+        ]
+      : state.episode.scenes;
+
     const policy = planPrefetch(
       state.sceneQueue.length,
-      state.episode.scenes.length,
+      simulatedScenes.length,
       activeCast.length,
       state.ui.isPaused,
     );
@@ -967,7 +984,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     const snapshotEpisodeId = state.episode.id;
     prefetchScenes({
       activeCast,
-      scenes: state.episode.scenes,
+      scenes: simulatedScenes,
       relationships: state.episode.relationships,
       emotions: state.episode.emotions,
       couples: state.episode.couples,
@@ -1540,6 +1557,14 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         isIntroduction || ensembleScenes.includes(sceneType)
           ? activeCast.map((a) => a.id)
           : undefined;
+
+      // Kick off prefetch for scene N+1 BEFORE we start awaiting scene N's
+      // LLM response. Pass the in-progress sceneType so the planner
+      // simulates it as committed — without that, the planner would just
+      // re-predict the scene we're currently generating. This is the
+      // single biggest win for user-perceived latency: scene 0 and scene 1
+      // now generate concurrently instead of serially.
+      get().triggerPrefetch(sceneType);
 
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;

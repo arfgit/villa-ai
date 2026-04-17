@@ -394,21 +394,36 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
     // the whole season, and noise here (drama, flirting, couplings) makes
     // later scenes feel repetitive. Tune the beat counts/banter level
     // here if you want the opener to feel more/less chatty.
-    direction = `SEASON OPENER — "INTRODUCTIONS" scene. ORDER OF EVENTS:
+    direction = `SEASON OPENER — "INTRODUCTIONS" scene. This scene is an ACTUAL round of self-introductions where each contestant says WHO THEY ARE out loud. It is NOT a dramatic hang-out scene. Do not skip the self-intros in favor of drama — the self-intros ARE the scene.
 
-1. HOST speaks first (1-2 lines) — theatrical welcome to the villa, sets the tone for the season. Can tease what's coming without spoiling.
+ORDER OF EVENTS:
 
-2. Each contestant speaks ONE self-introduction line (${cast.length} lines total, one per contestant). They share name + age + hometown + a voice-y hook that captures their personality and what they're looking for in the villa. Go in a natural order (not alphabetical) — whoever the host gestures to next.
+1. HOST speaks first (1-2 lines) — theatrical welcome to the villa, sets the tone. Example shape: "Welcome to Villa AI. Eight gorgeous singletons, one summer, one chance at finding the one. Let's meet your islanders." (Don't copy this verbatim — write your own version in the host's voice.)
 
-3. LIGHT BANTER — ${Math.max(2, Math.min(4, Math.floor(cast.length / 2)))} short reactive lines sprinkled BETWEEN intros (not all at the end). Examples: a compliment on someone's accent, a surprised laugh at a bold hook, a playful "ok watch out for that one". Keep them warm — no shade, no flirting yet, no rivalries. These lines break up the intro monotony and let personalities bump against each other.
+2. EACH CONTESTANT speaks ONE self-introduction line. There must be EXACTLY ${cast.length} self-intro lines (one per contestant). Every self-intro MUST include:
+   • Name ("I'm Omar...")
+   • Age ("...I'm 28...")
+   • Hometown or where they're from ("...from Manchester.")
+   • A voice-y hook that captures who they are and what they're here for.
 
-4. HOST speaks the final 1-2 lines — warm close, teases the first mini-game / coupling to come, tells the cast to get to know each other.
+   Example self-intro lines (write each contestant's in THEIR OWN voice — don't copy):
+   - "Hiya, I'm Maya, I'm 24, from Leeds. I've been called high-maintenance before and honestly? I think I'm worth it."
+   - "Right, I'm Callum, 26, from Belfast. I'm a PE teacher by day, and a menace by night. Let's see what happens."
+   - "Hey everyone — I'm Amara, 22, from London. I'm a soft girl with a hard opinion. Try me."
+
+   Go in a natural order (not alphabetical) — whoever the host gestures to next.
+
+3. LIGHT BANTER — ${Math.max(2, Math.min(4, Math.floor(cast.length / 2)))} short reactive lines sprinkled BETWEEN intros (not clumped at the end). Examples: a compliment on someone's accent, a laugh at a bold hook, a playful "watch out for that one". Keep them warm — no shade, no flirting yet, no rivalries. These break up intro rhythm so it doesn't read as a checklist.
+
+4. HOST speaks the final 1-2 lines — warm close, teases what's coming ("right, get to know each other, and we'll see you at the firepit later").
 
 HARD RULES for this scene:
-- DO NOT emit any couple_formed or couple_broken events. No one couples up yet — pairings happen at the first recoupling a few scenes later.
-- No flirting beyond a very light "you're cute" compliment. Save the heat for scene 2+.
-- No established drama, jealousy, or rivalries — they've just met.
-- Emit subtle attraction_change deltas (+3 to +8) between 2-4 unexpected pairs based on first impressions, to seed chemistry for the recoupling arc.`;
+- EVERY contestant MUST have a self-intro line. Skipping any contestant breaks the scene. Refer to the MANDATORY SPEAKERS list above — every id on it needs at least one line.
+- Self-intros MUST sound like introductions. "Hiya, I'm [name], I'm [age], from [place]" is the FORMAT. Adding a voice-y tag after ("...and I'm here to cause chaos") is encouraged. Writing a generic flirty aside INSTEAD of an intro is a FAILURE.
+- DO NOT emit any couple_formed or couple_broken events. Pairings happen scenes later.
+- No deep flirting ("you're cute" is the ceiling — save the heat for later scenes).
+- No drama, jealousy, or rivalries — they literally just met.
+- Emit subtle attraction_change deltas (+3 to +8) between 2-4 unexpected pairs based on first impressions — seeds chemistry the coupling ceremony can draw on.`;
   } else if (isFinale) {
     direction = `SEASON FINALE (scene ${sceneNumber}). The host gathers everyone one final time. Reference the season's biggest moments via the contestants' memories. Lock in the winning couple via couple_formed events. The vibe should feel climactic and conclusive.`;
   } else if (sceneType === "interview") {
@@ -819,6 +834,16 @@ Direction: ${direction}${antiPatternsBlock}
 - Each line must include emotion. Optionally include action (physical action like "leans in", "storms off", "slams cup down").
 - Each line should include targetAgentId when one contestant is speaking to another specific person. (Host lines may skip targetAgentId. Interview lines MUST skip targetAgentId.)
 - Include 3 to 6 systemEvents with deltas in the range -10 to +10. Use SMALL deltas (1-4) for subtle moments and LARGER deltas (5-10) only for dramatic turning points. Stats should change gradually, not spike to extremes.
+- NEGATIVE deltas are EXPECTED and necessary — relationships only feel real when they go DOWN as well as UP. A scene with only positive deltas reads as fake. Emit negatives whenever the dialogue warrants.
+- DELTA DIRECTION MUST MATCH DIALOGUE:
+    • flirt / reassure / soften / confess → attraction_change +, trust_change +
+    • accuse / challenge / test / reveal-a-betrayal → trust_change −, compatibility_change −
+    • manipulate / deny / deflect-uncomfortably → trust_change − (the TARGET loses trust in the speaker)
+    • declare / escalate-together → attraction_change + (both directions)
+    • see-your-partner-flirting → jealousy_spike + (the watcher), attraction_change − between the two who were flirting (when caught)
+    • genuinely vulnerable moment → trust_change +, compatibility_change + (small, 2-4)
+    • sustained petty friction → compatibility_change − (slow drift)
+- Events must reference SPECIFIC dialogue moments, not be generic. If two contestants barely spoke in this scene, do NOT emit a delta between them.
 - Every delta must be justified by what was said in the dialogue.
 - OBEY the DIALOGUE RULES below — every line must be unmistakably that character's voice. No fourth wall EXCEPT in interview scenes.
 - Outcome: one sentence that hooks the next scene.
