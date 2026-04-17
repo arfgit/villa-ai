@@ -131,6 +131,10 @@ export interface PrefetchInput {
   casaAmorState: CasaAmorState | null;
   avgDramaScore: number;
   gapToFill: number;
+  // Called when each scene in the batch becomes ready. The store uses
+  // this to append to sceneQueue INCREMENTALLY — otherwise the user sees
+  // no progress during the 20-60s sequential realization window.
+  onSceneReady?: (queued: QueuedScene) => void;
 }
 
 // A prefetched scene keeps the OUTLINE it was realized against. At
@@ -311,7 +315,17 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
     try {
       const buildArgs = buildArgsFor(outline, workingState, input);
       const scene = await generateSceneFromLlm(buildArgs, activeIds);
-      scenes.push({ outline, scene });
+      const queued: QueuedScene = { outline, scene };
+      scenes.push(queued);
+      // INCREMENTAL ENQUEUE — fire the callback the instant each scene
+      // lands. The store appends to sceneQueue immediately so the user's
+      // queue grows one-at-a-time during a 60s cold-start batch instead
+      // of sitting empty until the whole batch finishes.
+      try {
+        input.onSceneReady?.(queued);
+      } catch (cbErr) {
+        console.warn("[scene-prefetch] onSceneReady callback failed:", cbErr);
+      }
       applyRealizedScene(workingState, outline.type, scene);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);

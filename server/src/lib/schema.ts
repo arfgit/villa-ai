@@ -121,11 +121,21 @@ function sanitizeDialogueText(raw: string): string {
   // Strip leading emoji/pictograph/separator run. Whitespace-optional so
   // "✨Welcome" as well as "🕉 I'm so glad..." both get cleaned.
   s = s.replace(LEADER_STRIP_RE, "");
-  // Trim whitespace that the leader-strip exposed.
   s = s.trimStart();
-  // Strip trailing emoji-wrap so "Welcome ✨" → "Welcome", but don't nuke
-  // a period/question-mark sentence ending.
   s = s.replace(TRAILER_STRIP_RE, "").trimEnd();
+  // Strip whole-line asterisk wrap. The LLM sometimes emits every
+  // dialogue line as "*babe, I'm nervous...*" — the whole line renders
+  // italic (Markdown emphasis) and reads as narration instead of speech.
+  // Detection: starts with * AND ends with * AND no other * appears
+  // inside (if there were inline *action* markers, we'd see >= 3 stars).
+  // In that narrow case, unwrap. Leaves "*sighs* said..." alone because
+  // that pattern has * at positions 0 and 6 but NOT at the end.
+  if (s.length >= 2 && s.startsWith("*") && s.endsWith("*")) {
+    const inner = s.slice(1, -1);
+    if (!inner.includes("*")) {
+      s = inner.trim();
+    }
+  }
   return s;
 }
 

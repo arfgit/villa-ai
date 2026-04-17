@@ -150,21 +150,17 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   const allCast =
     casaAmorCast && casaAmorCast.length > 0 ? [...cast, ...casaAmorCast] : cast;
 
+  // NO style samples in the cast block. Every previous attempt to include
+  // them (as `example line:` or `style sample:`) resulted in the LLM
+  // copying the literal string as a dialogue line — Zion kept getting
+  // "Wait, wait, WAIT. Did she just say that?" because that was the
+  // "dramatic AF" sample shown in quotes on his row. The `voice:`
+  // description field below carries the same signal without giving the
+  // model any ready-made string to paste. Also saves ~240 tokens per
+  // prompt (8 cast × 30 tokens/sample).
   const castBlock = allCast
     .map((a) => {
-      const voiceKey = Object.keys(VOICE_EXAMPLES).find((k) =>
-        a.voice.includes(k),
-      );
-      const example = voiceKey ? VOICE_EXAMPLES[voiceKey] : null;
-      // STYLE SAMPLE, not a dialogue template. The LLM was copying these
-      // verbatim as lines ("*gasps* Wait. WAIT." showed up as Finn's intro
-      // because the dramatic-AF voice sample reads like real dialogue).
-      // Renaming the field + explicit "never copy" + length cap signals
-      // this is a tone reference to imitate, not a line to paste.
-      const exLine = example
-        ? `\n  style sample (for TONE — NEVER copy verbatim): "${clip(example, 140)}"`
-        : "";
-      return `- ${a.id} (${clip(a.name, 60)}, ${a.age}) [${clip(a.archetype, 60)}]\n  voice: ${clip(a.voice, 160)}\n  bio: ${clip(a.bio, 220)}\n  traits: ${clip(a.personality, 200)}${exLine}`;
+      return `- ${a.id} (${clip(a.name, 60)}, ${a.age}) [${clip(a.archetype, 60)}]\n  voice: ${clip(a.voice, 160)}\n  bio: ${clip(a.bio, 220)}\n  traits: ${clip(a.personality, 200)}`;
     })
     .join("\n");
 
@@ -764,7 +760,7 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
     // Every scene regardless of type.
     'NO emoji leaders. Dialogue lines must start with a letter or a "*action*" marker, NEVER with an emoji/pictograph like "🕉" or "🤓". The emojiFace on a character is a render concern, not dialogue content.',
     'NO decorative separators. Don\'t insert "¦", "|", "—" or similar as line fillers. Use normal prose punctuation only.',
-    "NEVER echo a style sample verbatim. The `style sample` on each contestant is a TONE reference — match the energy, vocabulary, rhythm. Do NOT use its literal wording. Copy-pasting a style sample as a dialogue line is a failure.",
+    'NO whole-line asterisk wrapping. Writing a dialogue line as "*I\'m so nervous about this...*" renders as italic narration and looks like a stage direction, not speech. Dialogue is the words the character SAYS OUT LOUD — write it plain: "I\'m so nervous about this...". Use the separate `action` JSON field for physical actions, or brief inline *action* markers like "*sighs* — I think it\'s over." (action followed by the actual spoken line).',
   ];
   if (!isIntroduction) {
     antiPatterns.push(

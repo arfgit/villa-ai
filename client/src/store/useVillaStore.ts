@@ -996,13 +996,19 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       casaAmorState: state.episode.casaAmorState,
       avgDramaScore: averageDramaScore(state.episode.dramaScores),
       gapToFill: policy.gapToFill,
-    })
-      .then((scenes) => {
-        if (scenes.length === 0) return;
-        // Episode-id fence: if the user started a new episode while this
-        // batch was in flight, don't leak results into the new episode.
+      // Incremental enqueue — push each scene into the queue as it
+      // lands, rather than waiting for the full batch. Episode-id fence
+      // lives inside the callback so results from an abandoned batch
+      // don't leak into a newly-started episode.
+      onSceneReady: (queued) => {
         if (get().episode.id !== snapshotEpisodeId) return;
-        set((s) => ({ sceneQueue: [...s.sceneQueue, ...scenes] }));
+        set((s) => ({ sceneQueue: [...s.sceneQueue, queued] }));
+      },
+    })
+      .then(() => {
+        // Intentional no-op — scenes were appended incrementally via
+        // onSceneReady. The return value is unused in the new model;
+        // it's kept for the promise chain so we can still catch errors.
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
@@ -1306,40 +1312,58 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       const agentGoals: Record<string, string> = {};
       const agentPolicies: Record<string, string> = {};
       if (!isIntroduction) {
+        // Pre-fill goals + policies synchronously (no I/O) so the async
+        // retrieval loop below has less bookkeeping.
         for (const agent of retrievalParticipants) {
           const brain = initial.episode.brains[agent.id];
           if (!brain) continue;
           agentGoals[agent.id] = brain.goal;
           agentPolicies[agent.id] = brain.policy;
-          if (brain.memories.length === 0) {
-            agentMemories[agent.id] = [];
-            continue;
-          }
-          const emotion = initial.episode.emotions.find(
-            (e) => e.agentId === agent.id,
-          );
-          const emotionTag = emotion ? ` (feeling ${emotion.primary})` : "";
-          const otherNames = sceneParticipantNames.filter(
-            (n) => n !== agent.name,
-          );
-          const query = buildRetrievalQuery({
-            agentName: agent.name + emotionTag,
-            otherParticipantNames: otherNames,
-            sceneType,
-            seasonTheme: initial.episode.seasonTheme,
-          });
-          try {
-            agentMemories[agent.id] = await retrieveMemories(
+        }
+        // Parallel embedding retrieval. Previously this loop awaited each
+        // agent's retrieveMemories() in sequence — with 8 active cast
+        // members that's 8 serial HTTP embed calls before every scene
+        // (~2-3s just for round trips on local Ollama). Promise.all
+        // collapses them into one parallel fan-out: same server-side
+        // workload, ~8× less wallclock on the client. Per-agent errors
+        // are caught individually so one failure doesn't lose all
+        // memories for the scene.
+        const retrievalTasks = retrievalParticipants
+          .map((agent) => {
+            const brain = initial.episode.brains[agent.id];
+            if (!brain || brain.memories.length === 0) {
+              agentMemories[agent.id] = [];
+              return null;
+            }
+            const emotion = initial.episode.emotions.find(
+              (e) => e.agentId === agent.id,
+            );
+            const emotionTag = emotion ? ` (feeling ${emotion.primary})` : "";
+            const otherNames = sceneParticipantNames.filter(
+              (n) => n !== agent.name,
+            );
+            const query = buildRetrievalQuery({
+              agentName: agent.name + emotionTag,
+              otherParticipantNames: otherNames,
+              sceneType,
+              seasonTheme: initial.episode.seasonTheme,
+            });
+            return retrieveMemories(
               brain.memories,
               query,
               sceneNumber,
               MAX_RETRIEVED_MEMORIES,
-            );
-          } catch (err) {
-            console.warn("[memory] retrieval failed for", agent.id, err);
-            agentMemories[agent.id] = [];
-          }
-        }
+            )
+              .then((mems) => {
+                agentMemories[agent.id] = mems;
+              })
+              .catch((err) => {
+                console.warn("[memory] retrieval failed for", agent.id, err);
+                agentMemories[agent.id] = [];
+              });
+          })
+          .filter((p): p is Promise<void> => p !== null);
+        await Promise.all(retrievalTasks);
       }
 
       // Pre-compute elimination for ceremony scenes so the LLM can write the drama
