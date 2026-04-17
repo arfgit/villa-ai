@@ -11,6 +11,21 @@ serviceAccountKey.json
 # Build
 dist
 server/dist
+client/dist
+*.tsbuildinfo
+
+# Shared is type-only — compiled outputs shouldn't be committed
+shared/index.js
+shared/index.d.ts
+shared/types.js
+shared/types.d.ts
+shared/dist/
+
+# Firebase local cache
+.firebase/
+firebase-debug.log
+firestore-debug.log
+ui-debug.log
 
 # OS
 .DS_Store

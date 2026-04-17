@@ -7,10 +7,7 @@
     "skipLibCheck": true,
     "noEmit": true,
     "isolatedModules": true,
-    "esModuleInterop": true,
-    "paths": {
-      "@villa-ai/shared": ["../shared/index.ts"]
-    }
+    "esModuleInterop": true
   },
-  "include": ["src", "../shared"]
+  "include": ["src"]
 }

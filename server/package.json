@@ -3,6 +3,10 @@
   "private": true,
   "version": "0.1.0",
   "type": "module",
+  "main": "dist/functions.js",
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -10,15 +14,16 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@villa-ai/shared": "*",
     "@google/generative-ai": "^0.24.1",
     "cors": "^2.8.5",
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "firebase-admin": "^13.4.0",
+    "firebase-functions": "^6.4.0",
     "nanoid": "^5.1.5"
   },
   "devDependencies": {
+    "@villa-ai/shared": "*",
     "@types/cors": "^2.8.18",
     "@types/express": "^5.0.3",
     "@types/node": "^22.15.0",

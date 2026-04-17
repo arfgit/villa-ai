@@ -9,10 +9,16 @@
     "dev:server": "npm run dev -w server",
     "dev:local": "concurrently -n ollama,server,client -c green,blue,magenta \"OLLAMA_ORIGINS=* ollama serve\" \"npm run dev:server\" \"npm run dev:client\"",
     "build": "npm run build -w server && npm run build -w client",
-    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server"
+    "typecheck": "npm run typecheck -w shared && npm run typecheck -w client && npm run typecheck -w server",
+    "emulators": "firebase emulators:start",
+    "deploy": "npm run build && firebase deploy",
+    "deploy:hosting": "npm run build -w client && firebase deploy --only hosting",
+    "deploy:functions": "npm run build -w server && firebase deploy --only functions",
+    "deploy:rules": "firebase deploy --only firestore:rules"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
+    "firebase-tools": "^14.0.0",
     "typescript": "~6.0.2"
   }
 }
