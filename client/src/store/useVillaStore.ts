@@ -92,6 +92,7 @@ import {
   isIntroductionLine,
 } from "@/lib/dialogueIntensity";
 import { pickMinigame } from "@/lib/minigames";
+import { trimSceneForPrompt } from "@/lib/scenePayload";
 
 interface UiState {
   isCastOpen: boolean;
@@ -1566,7 +1567,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         relationships: initial.episode.relationships,
         emotions: initial.episode.emotions,
         couples: initial.episode.couples,
-        recentScenes: initial.episode.scenes.slice(-3),
+        recentScenes: initial.episode.scenes.slice(-3).map(trimSceneForPrompt),
         sceneType,
         seasonTheme: initial.episode.seasonTheme,
         sceneNumber,

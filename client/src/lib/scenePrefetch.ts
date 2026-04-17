@@ -43,6 +43,7 @@ import {
   type WorkingState,
 } from "./workingState";
 import { createFallbackScene } from "./sceneFallback";
+import { trimSceneForPrompt } from "./scenePayload";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
@@ -218,7 +219,7 @@ function buildArgsFor(
     relationships: working.relationships,
     emotions: working.emotions,
     couples: working.couples,
-    recentScenes: realScenes.slice(-3),
+    recentScenes: realScenes.slice(-3).map(trimSceneForPrompt),
     sceneType: outline.type,
     seasonTheme: input.seasonTheme,
     sceneNumber: realScenes.length + 1,
