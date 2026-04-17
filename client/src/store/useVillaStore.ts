@@ -974,15 +974,22 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
-  // Fire-and-forget prefetch trigger. Callable from three sites:
-  //   1. generateScene START — pass the in-progress sceneType so the
-  //      planner simulates it as already-committed. Scene N+1 starts
-  //      generating in parallel with scene N (LLM wallclock overlap).
-  //   2. generateScene post-commit — no arg, tops up from fresh state.
-  //   3. useScenePlayback on line 0 — belt-and-braces if (1) and (2)
-  //      didn't fill the queue enough.
+  // Fire-and-forget prefetch trigger. Callable from two sites now:
+  //   1. generateScene POST-COMMIT (end of the scene action). Fresh state.
+  //   2. useScenePlayback on line 0 — fires when a scene starts playing,
+  //      belt-and-braces if the post-commit trigger didn't keep up.
+  // (A third call site inside generateScene pre-LLM was removed — on
+  // single-model Ollama it pipelined prefetch prompts behind the live
+  // scene and halved its tokens-per-second.)
+  //
   // Idempotent: the runner has a single-flight guard, and planPrefetch
   // returns null when the queue is already deep enough.
+  //
+  // inProgressSceneType param is kept for API stability but should be
+  // left undefined from callers — simulating an in-progress state-mutator
+  // (recouple/bombshell/minigame) causes us to prefetch SUBSEQUENT scenes
+  // against stale couples/relationships, which then commit after the real
+  // scene changes them.
   triggerPrefetch: (inProgressSceneType) => {
     const state = get();
     if (state.episode.winnerCouple) return;
@@ -990,11 +997,26 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       (a) => !state.episode.eliminatedIds.includes(a.id),
     );
 
-    // If a scene is currently being generated (but not yet committed),
-    // simulate it in the scene list so the planner predicts the NEXT
-    // slot, not the current one. Without this, firing at generateScene
-    // start would just re-predict the scene that's already in flight.
-    const simulatedScenes = inProgressSceneType
+    // Safety: refuse to simulate state-mutating types. If a caller ever
+    // passes one (we don't today, but the signature still accepts it),
+    // fall back to non-simulated mode so we don't prefetch against stale
+    // couples that are about to change.
+    const STATE_MUTATING: ReadonlySet<SceneType> = new Set([
+      "recouple",
+      "bombshell",
+      "minigame",
+      "challenge",
+      "public_vote",
+      "islander_vote",
+      "producer_twist",
+      "casa_amor_arrival",
+      "casa_amor_date",
+      "casa_amor_challenge",
+      "casa_amor_stickswitch",
+    ]);
+    const safeToSimulate =
+      inProgressSceneType && !STATE_MUTATING.has(inProgressSceneType);
+    const simulatedScenes = safeToSimulate
       ? [
           ...state.episode.scenes,
           { type: inProgressSceneType } as unknown as Scene,
@@ -1639,13 +1661,15 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           ? activeCast.map((a) => a.id)
           : undefined;
 
-      // Kick off prefetch for scene N+1 BEFORE we start awaiting scene N's
-      // LLM response. Pass the in-progress sceneType so the planner
-      // simulates it as committed — without that, the planner would just
-      // re-predict the scene we're currently generating. This is the
-      // single biggest win for user-perceived latency: scene 0 and scene 1
-      // now generate concurrently instead of serially.
-      get().triggerPrefetch(sceneType);
+      // IMPORTANT: do NOT fire triggerPrefetch here. Firing it in-flight
+      // caused a measurable regression on single-model Ollama setups —
+      // the prefetch runner queued additional prompts onto the same
+      // model instance as the in-progress scene, halving scene-0 TPS.
+      // Prefetch runs post-commit (end of this function) and at scene
+      // playback start via useScenePlayback — both of which happen
+      // BEFORE or AFTER the live LLM call, never concurrent with it on
+      // Ollama. Trade: scene 1 no longer overlaps with scene 0
+      // generation, but scene 0 is back to its true solo latency.
 
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;

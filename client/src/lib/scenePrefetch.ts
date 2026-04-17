@@ -83,15 +83,18 @@ export function isBatchable(sceneType: SceneType, scenes: Scene[]): boolean {
   return false;
 }
 
-// Maximum number of prefetched scenes to hold at once. Deeper queue = less
-// chance of a user waiting, more wasted generation on mispredicts. 5 covers
-// a typical 5-scene lookahead window without getting spicy on mispredicts.
-const TARGET_QUEUE_DEPTH = 5;
+// Queue depth trades off buffer vs speculative burn. We used to target 5
+// but that had two costs: (a) on single-model Ollama it pipelines 5
+// generation jobs behind whatever's currently live, slowing everything;
+// (b) deeper speculation = more scenes to throw away on mispredicts.
+// 3 scenes ahead is still enough to absorb a single LLM hiccup without
+// the user ever seeing "catching up…" during steady-state playback.
+const TARGET_QUEUE_DEPTH = 3;
 
 // Only top up when the queue drops below this. Prevents us from firing a
-// batch on every single playback-start event. 3 leaves plenty of buffer
-// while letting the queue drain to 2 before re-filling.
-const TOPUP_THRESHOLD = 3;
+// batch on every single playback-start event. At threshold=2, there's
+// always at least 1 scene in reserve while the next batch generates.
+const TOPUP_THRESHOLD = 2;
 
 export interface PrefetchPolicy {
   gapToFill: number;
@@ -214,6 +217,12 @@ function buildArgsFor(
     (s): s is Scene => typeof (s as Scene).id === "string",
   );
 
+  // sceneNumber must count ALL scenes in the working timeline — real
+  // committed ones + stubs from earlier outlines in this batch. Using
+  // only realScenes.length would prompt every outline after the first
+  // with the same sceneNumber, so scene 2/3/4 in a batch all read as
+  // the same episode slot to the LLM. working.scenes has the stubs
+  // applyRealizedScene appended, so .length here is correct.
   const buildArgs: BuildArgs = {
     cast: input.activeCast,
     relationships: working.relationships,
@@ -222,7 +231,7 @@ function buildArgsFor(
     recentScenes: realScenes.slice(-3).map(trimSceneForPrompt),
     sceneType: outline.type,
     seasonTheme: input.seasonTheme,
-    sceneNumber: realScenes.length + 1,
+    sceneNumber: working.scenes.length + 1,
     isIntroduction: false,
     isFinale: false,
     outline,
@@ -320,6 +329,13 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
       input,
       activeIds,
     );
+    // Procedural scenes (recouple / minigame) whose two LLM attempts both
+    // failed return null — we refuse to synthesize a fallback for them
+    // because the fallback has no couple_formed / minigame_win events
+    // and committing it would leave the episode in a broken state
+    // (e.g. first coupling with zero couples). Better to stop the batch
+    // here and let the live-gen path handle it when the scene plays.
+    if (!scene) break;
     const queued: QueuedScene = { outline, scene };
     scenes.push(queued);
     try {
@@ -337,17 +353,30 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
   return scenes;
 }
 
-// Try the LLM twice, then fall back to a templated scene. Two retries
-// is enough to paper over transient rate-limit + parse errors without
-// waiting forever when the provider is truly down. Fallback scenes let
-// the batch keep flowing — otherwise one bad realization would abort
-// the remaining queue slots and the user would stall.
+// Scene types safe to emit a templated fallback for. Ambient social
+// scenes have no required state transitions — a canned 2-line
+// interstitial is a tolerable interstitial. Procedural scene types
+// (recouple forms couples, minigame awards a winner, bombshell adds
+// cast) REQUIRE specific systemEvents the fallback can't produce
+// correctly, so we return null on exhaustion and let them live-gen.
+const FALLBACK_SAFE_TYPES: ReadonlySet<SceneType> = new Set([
+  "firepit",
+  "pool",
+  "kitchen",
+  "bedroom",
+]);
+
+// Try the LLM twice. On exhaustion:
+//   - ambient scene types get a templated fallback so the batch keeps
+//     flowing
+//   - procedural scene types return null so the caller can stop the
+//     batch (committing a procedural fallback would corrupt state)
 async function realizeWithRetryAndFallback(
   outline: SceneOutline,
   workingState: WorkingState,
   input: PrefetchInput,
   activeIds: string[],
-): Promise<LlmSceneResponse> {
+): Promise<LlmSceneResponse | null> {
   const maxAttempts = 2;
   let lastError: unknown = null;
   for (let attempt = 0; attempt < maxAttempts; attempt++) {
@@ -363,9 +392,16 @@ async function realizeWithRetryAndFallback(
       );
     }
   }
+  if (FALLBACK_SAFE_TYPES.has(outline.type)) {
+    console.warn(
+      `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — using ambient fallback.`,
+      lastError instanceof Error ? lastError.message : lastError,
+    );
+    return createFallbackScene(outline, input.activeCast);
+  }
   console.warn(
-    `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — using fallback template.`,
+    `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — procedural scene, refusing fallback. Batch will stop here; live-gen will handle when played.`,
     lastError instanceof Error ? lastError.message : lastError,
   );
-  return createFallbackScene(outline, input.activeCast);
+  return null;
 }
