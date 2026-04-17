@@ -155,7 +155,14 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
         a.voice.includes(k),
       );
       const example = voiceKey ? VOICE_EXAMPLES[voiceKey] : null;
-      const exLine = example ? `\n  example line: "${clip(example, 140)}"` : "";
+      // STYLE SAMPLE, not a dialogue template. The LLM was copying these
+      // verbatim as lines ("*gasps* Wait. WAIT." showed up as Finn's intro
+      // because the dramatic-AF voice sample reads like real dialogue).
+      // Renaming the field + explicit "never copy" + length cap signals
+      // this is a tone reference to imitate, not a line to paste.
+      const exLine = example
+        ? `\n  style sample (for TONE — NEVER copy verbatim): "${clip(example, 140)}"`
+        : "";
       return `- ${a.id} (${clip(a.name, 60)}, ${a.age}) [${clip(a.archetype, 60)}]\n  voice: ${clip(a.voice, 160)}\n  bio: ${clip(a.bio, 220)}\n  traits: ${clip(a.personality, 200)}${exLine}`;
     })
     .join("\n");
@@ -756,6 +763,7 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
     // Every scene regardless of type.
     'NO emoji leaders. Dialogue lines must start with a letter or a "*action*" marker, NEVER with an emoji/pictograph like "🕉" or "🤓". The emojiFace on a character is a render concern, not dialogue content.',
     'NO decorative separators. Don\'t insert "¦", "|", "—" or similar as line fillers. Use normal prose punctuation only.',
+    "NEVER echo a style sample verbatim. The `style sample` on each contestant is a TONE reference — match the energy, vocabulary, rhythm. Do NOT use its literal wording. Copy-pasting a style sample as a dialogue line is a failure.",
   ];
   if (!isIntroduction) {
     antiPatterns.push(

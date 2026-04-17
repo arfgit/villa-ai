@@ -103,10 +103,16 @@ function asBeatIndex(v: unknown, plannedBeatCount: number): number | undefined {
 // rather than hunted through every render site. Preserves meaningful
 // punctuation, action markers like "*sighs*", and inline emoji that
 // occur mid-sentence (those stay — they're likely intentional).
-const LEADER_STRIP_RE =
-  /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u00a6\u00a7\u2022\u2043]+/u;
-const TRAILER_STRIP_RE =
-  /[\p{Emoji_Presentation}\p{Extended_Pictographic}\u00a6\u00a7\u2022\u2043]+$/u;
+// Character class covers: emoji presentation, extended pictographic (covers
+// most modern emoji regardless of skin-tone modifiers), the U+FE0F variation
+// selector (often trails an emoji like ❤️ = ❤ + FE0F), the U+200D zero-width
+// joiner (binds compound emoji like 👨‍👩‍👧), and a few common stray chars
+// the LLM sometimes emits as decoration (¦ § bullets). Whitespace too, so
+// the leader/trailer strip also eats any gaps between emojis.
+const DECORATOR_CLASS =
+  "\\p{Emoji_Presentation}\\p{Extended_Pictographic}\\u200d\\ufe0f\\u00a6\\u00a7\\u2022\\u2043\\s";
+const LEADER_STRIP_RE = new RegExp(`^[${DECORATOR_CLASS}]+`, "u");
+const TRAILER_STRIP_RE = new RegExp(`[${DECORATOR_CLASS}]+$`, "u");
 
 function sanitizeDialogueText(raw: string): string {
   let s = raw;
