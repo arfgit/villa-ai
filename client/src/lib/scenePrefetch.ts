@@ -43,16 +43,10 @@ import { pickMinigame } from "./minigames";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
-// Scene types we prefetch. Ambient social scenes have prompts that depend
-// only on cast + relationship state (no per-scene choices). Minigame is
-// also here because its setup (challengeCategory + minigameDefinition) is
-// derivable from current state via pure functions — so we can generate it
-// during playback of the previous scene. Still excluded:
-//   - recouple: needs recoupleScript built from live relationships, which
-//     a prior minigame may have just mutated
-//   - interview: needs interviewSubjectId picked from drama scores
-//   - date: needs reward-couple selection from a just-finished challenge
-//   - bombshell / casa_amor_*: needs arriving-cast selection + state change
+// Scene types we prefetch unconditionally. Ambient social scenes have
+// prompts that depend only on cast + relationship state; minigame's
+// setup (challengeCategory + minigameDefinition) is derivable from
+// current scenes via pure functions, so we can prefetch it too.
 const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
   "firepit",
   "pool",
@@ -62,13 +56,27 @@ const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
 ]);
 
 // Scene types that mutate game state enough that we can't reliably keep
-// generating PAST them (e.g., a minigame picks a winner couple, which
-// changes who's on a reward date next). Prefetch stops after queuing one
-// of these — the next cycle can resume from the fresh post-commit state.
-const STOP_AFTER_TYPES: ReadonlySet<SceneType> = new Set(["minigame"]);
+// generating PAST them (a minigame picks a winner, a recouple creates or
+// breaks couples). Prefetch stops after queuing one of these — the next
+// cycle resumes from the fresh post-commit state.
+const STOP_AFTER_TYPES: ReadonlySet<SceneType> = new Set([
+  "minigame",
+  "recouple",
+]);
 
-export function isBatchable(sceneType: SceneType): boolean {
-  return BATCHABLE_TYPES.has(sceneType);
+// Recouple is prefetchable ONLY when it's the first one of the season.
+// That's the "first coupling" — no prior couples to mutate, no
+// relationship history that a previous scene might have just shifted.
+// Later recouples need the live recoupleScript built from fresh
+// relationship numbers, and we skip them here.
+function isFirstCoupling(scenes: Scene[]): boolean {
+  return scenes.every((s) => s.type !== "recouple");
+}
+
+export function isBatchable(sceneType: SceneType, scenes: Scene[]): boolean {
+  if (BATCHABLE_TYPES.has(sceneType)) return true;
+  if (sceneType === "recouple" && isFirstCoupling(scenes)) return true;
+  return false;
 }
 
 // Maximum number of prefetched scenes to hold at once. Deeper queue = less
@@ -220,7 +228,8 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
 
     // Stop at the first non-batchable slot. Continuing past would generate
     // scenes against stale state (see the module-level comment).
-    if (!isBatchable(sceneType)) break;
+    const combinedScenes = simulateFutureScenes(input.scenes, simulatedTypes);
+    if (!isBatchable(sceneType, combinedScenes)) break;
     simulatedTypes.push(sceneType);
 
     const buildArgs: BuildArgs = {
@@ -249,6 +258,16 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
         .map((s) => s.title);
       buildArgs.challengeCategory = category;
       buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
+    }
+
+    // First-coupling setup. When we prefetch the season's first recouple,
+    // we can't build a recoupleScript (that reads relationships which may
+    // still be mutating during scene 0 playback), so we let the LLM pick
+    // the pairings freely — the prompt's first-coupling branch doesn't
+    // require the script. The store then creates Couple entries from
+    // whatever couple_formed events the scene emits.
+    if (sceneType === "recouple") {
+      buildArgs.isFirstCoupling = true;
     }
 
     planned.push({ sceneType, buildArgs });

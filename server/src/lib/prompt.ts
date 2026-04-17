@@ -238,6 +238,34 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
 
   const allBombshells =
     arrivingBombshells ?? (arrivingBombshell ? [arrivingBombshell] : []);
+
+  // Flattened list of every id the validator will accept. We put this in
+  // the prompt so the LLM never guesses at ids from the name field —
+  // models love to write "Omar" as agentId when given a block that shows
+  // both id and name, and the validator throws those lines away silently.
+  const allValidIds: string[] = [
+    ...allCast.map((a) => a.id),
+    ...allBombshells.map((a) => a.id),
+    ...(host ? [host.id] : []),
+  ];
+  const validIdsList = allValidIds.join(", ");
+
+  // When the scene requires specific speakers (intros, first coupling,
+  // ensemble scenes), spell them out at the end of the ID block so the LLM
+  // can't silently skip anyone. The prompt's scene-direction section
+  // already says "every contestant must speak" in English — this is the
+  // enforcement version.
+  const requiredSpeakers: string[] = (() => {
+    if (isIntroduction || forcedParticipants === undefined) {
+      if (isIntroduction) return allCast.map((a) => a.id);
+      return [];
+    }
+    return forcedParticipants;
+  })();
+  const mandatorySpeakersBlock =
+    requiredSpeakers.length > 0
+      ? `\n\nMANDATORY SPEAKERS — every id below MUST appear as agentId on at least one dialogue line in your response. Skipping any of these means the contestant is missing from the scene on screen: ${requiredSpeakers.join(", ")}`
+      : "";
   const bombshellBlock =
     allBombshells.length > 0
       ? `\n## ARRIVING BOMBSHELL${allBombshells.length > 1 ? "S" : ""} (new contestant${allBombshells.length > 1 ? "s" : ""} walking in THIS scene)\n` +
@@ -299,25 +327,31 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   const brainParticipants = forcedParticipants
     ? castWithArrivals.filter((c) => forcedParticipants.includes(c.id))
     : castWithArrivals;
-  const brainBlock = brainParticipants
+  // Only include a brain section for participants who actually HAVE
+  // something (a memory, a goal, or a policy). Early scenes have none of
+  // these and the default "no specific memories yet" block adds ~50 tokens
+  // per contestant for zero value — that's ~400+ wasted tokens on scene 1
+  // which directly slows generation.
+  const brainEntries = brainParticipants
     .map((p) => {
       const goal = clip(agentGoals?.[p.id], 200);
       const policy = clip(agentPolicies?.[p.id], 200);
       const mems = agentMemories?.[p.id] ?? [];
-      const memList =
-        mems.length > 0
-          ? mems
-              .map(
-                (m) =>
-                  `    • [${m.type}, importance ${m.importance}] ${clip(m.content, 220)}`,
-              )
-              .join("\n")
-          : "    • (no specific memories yet)";
+      if (!goal && !policy && mems.length === 0) return null;
+      const memList = mems
+        .map(
+          (m) =>
+            `    • [${m.type}, importance ${m.importance}] ${clip(m.content, 200)}`,
+        )
+        .join("\n");
       const goalLine = goal ? `\n  goal: ${goal}` : "";
       const policyLine = policy ? `\n  current strategy: ${policy}` : "";
-      return `- ${clip(p.name, 60)} (${p.id})${goalLine}${policyLine}\n  memories:\n${memList}`;
+      const memBlock = memList ? `\n  memories:\n${memList}` : "";
+      return `- ${clip(p.name, 60)} (${p.id})${goalLine}${policyLine}${memBlock}`;
     })
-    .join("\n");
+    .filter((s): s is string => s !== null);
+  const brainBlock = brainEntries.join("\n");
+  const hasBrainContent = brainEntries.length > 0;
 
   let participantsClause: string;
   if (isIntroduction) {
@@ -749,11 +783,15 @@ ${couplesBlock}
 
 ## RECENT SCENES
 ${recentBlock}
-
+${
+  hasBrainContent
+    ? `
 ## EACH CONTESTANT'S MEMORY + GOAL + STRATEGY
 These are the personal observations each contestant has formed, what they're trying to do, and the current strategy they've committed to after reflecting on what has and hasn't worked for them. Use them to make dialogue feel personal, continuity-aware, and strategic. When a contestant speaks, they should sound like someone who actually remembers what's happened and is acting on a real plan.
 ${brainBlock}
-
+`
+    : ""
+}
 ## THIS SCENE (number ${sceneNumber})
 Type: ${sceneType}
 Title: ${sceneInfo.title}
@@ -800,6 +838,14 @@ Personality in action:
 - A villain wraps cruelty in charm — they smile while they twist the knife
 - A comedian deflects with humor — but the punchline lands on something real
 - A brooder says little — but when they speak, it HITS
+
+## VALID AGENT IDS (critical — must match exactly)
+Every \`agentId\`, \`targetAgentId\`, \`fromId\`, and \`toId\` MUST be one
+of the ids below. Using the display name ("Omar") instead of the id
+("omar123") causes the line to be silently dropped and the contestant
+never speaks on screen. Host id is literally the string "host".
+
+Valid ids: ${validIdsList}${mandatorySpeakersBlock}
 
 ## JSON SCHEMA
 {

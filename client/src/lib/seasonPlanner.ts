@@ -64,11 +64,23 @@ export function nextSceneType(state: PlannerState): SceneType {
     return "recouple";
   }
 
-  if (sceneCount === 1) return "minigame";
-  // Scene #2 is the first recouple — this is what establishes initial pairings.
-  // Do NOT gate it on coupleCount: couples only form via recouple, so gating
-  // creates a chicken-and-egg deadlock where no one ever pairs up.
-  if (sceneCount === 2) return "recouple";
+  // Love Island opening sequence:
+  //   scene 0 = introductions (handled above by phase === 'intro')
+  //   scene 1 = first coupling — the ceremony that establishes initial pairs
+  //             before the villa does anything else. Do NOT gate on
+  //             coupleCount: couples only form via recouple, so gating
+  //             creates a chicken-and-egg deadlock
+  //   scene 2 = firepit ambient — couples get to know each other, first
+  //             gossip, first impressions settle in
+  //   scene 3 = pool ambient — more mingling, casual stakes
+  //   scene 4+ = dynamic (dates, mini-games, more ambient, bombshells)
+  //
+  // Mini-games and challenges come LATER (scene 5+). Starting with a game
+  // on scene 2 skipped the "couples getting to know each other" beat that
+  // the real show opens with.
+  if (sceneCount === 1) return "recouple";
+  if (sceneCount === 2) return "firepit";
+  if (sceneCount === 3) return "pool";
 
   if (
     state.bombshellDatingUntilScene !== null &&

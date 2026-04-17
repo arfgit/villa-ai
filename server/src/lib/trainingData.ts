@@ -144,9 +144,15 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
 // a Firestore round-trip for identical data.
 const PAST_SEASONS_TTL_MS = 60_000;
 let pastSeasonsCache: { block: string; expiry: number } | null = null;
+// In-flight fetch shared by concurrent callers. Without this, five parallel
+// prefetch scenes arriving at a cold cache would each fire their own
+// Firestore query. With it, the first call wins the race and the other
+// four await the same promise.
+let pastSeasonsInFlight: Promise<string> | null = null;
 
 export function invalidatePastSeasonsCache(): void {
   pastSeasonsCache = null;
+  pastSeasonsInFlight = null;
 }
 
 export async function buildPastSeasonsPromptBlock(): Promise<string> {
@@ -154,26 +160,35 @@ export async function buildPastSeasonsPromptBlock(): Promise<string> {
   if (pastSeasonsCache && pastSeasonsCache.expiry > now) {
     return pastSeasonsCache.block;
   }
+  if (pastSeasonsInFlight) {
+    return pastSeasonsInFlight;
+  }
 
-  const archive = await loadTrainingArchive();
-  const block =
-    archive.seasons.length === 0
-      ? ""
-      : `\n## PAST SEASONS (reference for continuity)\n${archive.seasons
-          .map((s) => {
-            const winner = s.winnerNames
-              ? `${s.winnerNames[0]} & ${s.winnerNames[1]}`
-              : "no winner";
-            const hl =
-              s.highlights.length > 0
-                ? s.highlights.map((h) => `  - ${h}`).join("\n")
-                : "  - (no notable moments recorded)";
-            return `Season ${s.seasonNumber} (${s.totalScenes} scenes, ${s.eliminationCount} eliminations, winner: ${winner})
+  pastSeasonsInFlight = (async () => {
+    try {
+      const archive = await loadTrainingArchive();
+      const block =
+        archive.seasons.length === 0
+          ? ""
+          : `\n## PAST SEASONS (reference for continuity)\n${archive.seasons
+              .map((s) => {
+                const winner = s.winnerNames
+                  ? `${s.winnerNames[0]} & ${s.winnerNames[1]}`
+                  : "no winner";
+                const hl =
+                  s.highlights.length > 0
+                    ? s.highlights.map((h) => `  - ${h}`).join("\n")
+                    : "  - (no notable moments recorded)";
+                return `Season ${s.seasonNumber} (${s.totalScenes} scenes, ${s.eliminationCount} eliminations, winner: ${winner})
   Theme: ${s.theme}
   Key moments:\n${hl}`;
-          })
-          .join("\n")}\n`;
-
-  pastSeasonsCache = { block, expiry: now + PAST_SEASONS_TTL_MS };
-  return block;
+              })
+              .join("\n")}\n`;
+      pastSeasonsCache = { block, expiry: Date.now() + PAST_SEASONS_TTL_MS };
+      return block;
+    } finally {
+      pastSeasonsInFlight = null;
+    }
+  })();
+  return pastSeasonsInFlight;
 }

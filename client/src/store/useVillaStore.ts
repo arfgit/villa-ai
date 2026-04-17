@@ -1570,7 +1570,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         // "genuine live" (non-batchable type, always lives in main path)
         // from "queue miss" (prefetch didn't anticipate this), so it's
         // easier to diagnose whether prefetch is keeping up.
-        const isExpectedLive = !isBatchable(sceneType);
+        const isExpectedLive = !isBatchable(sceneType, initial.episode.scenes);
         set({
           generationProgress: {
             percent: 10,
