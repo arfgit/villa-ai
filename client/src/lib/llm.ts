@@ -1,32 +1,51 @@
-import type { LlmSceneResponse, LlmBatchSceneResponse, PlannedBeat } from '@/types'
-import { generateSceneFromGemini, generateBatchFromGemini } from './gemini'
-import { generateSceneFromOllama, generateBatchFromOllama } from './ollama'
+import type {
+  LlmSceneResponse,
+  LlmBatchSceneResponse,
+  PlannedBeat,
+} from "@/types";
 
-export type LlmProvider = 'gemini' | 'ollama'
+// Client never talks to Gemini/Ollama directly — the server is the single
+// LLM gateway. Provider (gemini | ollama) is chosen server-side from
+// LLM_PROVIDER env. Ollama calls from the browser were a dev-only hack
+// that caused CORS pain and bypassed server-side validation.
 
-export function getProvider(): LlmProvider {
-  const explicit = import.meta.env.VITE_LLM_PROVIDER as string | undefined
-  if (explicit === 'ollama' || explicit === 'gemini') return explicit
-  return import.meta.env.DEV ? 'ollama' : 'gemini'
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  const res = await fetch(path, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({ error: res.statusText }));
+    throw new Error(
+      (err as { error?: string }).error ?? `LLM server error ${res.status}`,
+    );
+  }
+  return res.json() as Promise<T>;
 }
 
 export async function generateScene(
   prompt: string,
   validAgentIds: string[],
   requiredSpeakerIds?: string[],
-  plannedBeats?: PlannedBeat[]
+  plannedBeats?: PlannedBeat[],
 ): Promise<LlmSceneResponse> {
-  const provider = getProvider()
-  if (provider === 'ollama') return generateSceneFromOllama(prompt, validAgentIds, requiredSpeakerIds, plannedBeats)
-  return generateSceneFromGemini(prompt, validAgentIds, requiredSpeakerIds, plannedBeats)
+  return postJson<LlmSceneResponse>("/api/llm/generate", {
+    prompt,
+    validAgentIds,
+    requiredSpeakerIds,
+    plannedBeats,
+  });
 }
 
 export async function generateBatchScene(
   prompt: string,
   validAgentIds: string[],
-  requiredSpeakerIds?: string[]
+  requiredSpeakerIds?: string[],
 ): Promise<LlmBatchSceneResponse> {
-  const provider = getProvider()
-  if (provider === 'ollama') return generateBatchFromOllama(prompt, validAgentIds, requiredSpeakerIds)
-  return generateBatchFromGemini(prompt, validAgentIds, requiredSpeakerIds)
+  return postJson<LlmBatchSceneResponse>("/api/llm/batch", {
+    prompt,
+    validAgentIds,
+    requiredSpeakerIds,
+  });
 }

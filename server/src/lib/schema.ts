@@ -292,6 +292,7 @@ export function parseAndValidate(
             : undefined,
         intent: asIntent(d.intent, plannedBeats, beatIndex),
         beatIndex,
+        quotable: d.quotable === true ? true : undefined,
       };
     })
     .slice(0, dialogueCap);

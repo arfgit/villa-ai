@@ -2276,7 +2276,14 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
                 set({ sceneQueue: batch.scenes.slice(0, 2) });
               }
             })
-            .catch(() => {});
+            .catch((err) => {
+              // Prefetch is best-effort: we log so developers can see why the
+              // queue stayed empty, but we don't surface to the user — the
+              // main scene path will re-try on demand and surface any fatal
+              // errors (auth, quota) there.
+              const msg = err instanceof Error ? err.message : String(err);
+              console.warn("[scene-prefetch] batch failed:", msg);
+            });
         }
       }
     } catch (err) {
