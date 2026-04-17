@@ -14,11 +14,14 @@
 //
 // Non-batchable scene types (minigame, recouple, bombshell, etc.) need
 // per-scene setup the prefetcher doesn't have (interviewSubjectId, reward
-// couple, etc.), so we don't generate them speculatively. We still plan
-// PAST them, though: if the predicted sequence is [pool, minigame, pool],
-// we generate scenes 1 + 3 and let the main path live-gen scene 2. The
-// store's consumer only pops a queued scene when its tagged sceneType
-// matches the live-planned one.
+// couple, etc.), AND they mutate game state: a recouple makes/breaks
+// couples, a minigame awards a reward date, a bombshell seeds attractions.
+// So when lookahead hits a non-batchable slot, we STOP — any ambient scene
+// we generated beyond that point would be written against pre-mutation
+// state and would read as a continuity break when committed after the
+// live scene landed. The user gets a one-time "writers room" pause on the
+// state-mutating scene, then prefetch resumes from the fresh state after
+// it commits.
 
 import type {
   Agent,
@@ -124,6 +127,15 @@ export function isPrefetchInFlight(): boolean {
   return inFlight;
 }
 
+// Reset the single-flight guard. Called by the store on episode switch /
+// new-episode / session-load so a stale in-flight run from the previous
+// episode doesn't block cold-start prefetch on the new one. The in-flight
+// run's result is still fenced out by the store's episode-id check — this
+// only clears the flag so a NEW run can start.
+export function resetPrefetchState(): void {
+  inFlight = false;
+}
+
 function simulateFutureScenes(
   existing: Scene[],
   plannedTypes: SceneType[],
@@ -188,11 +200,10 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
       recoupleCount,
     });
 
-    // Always advance the simulation — the planner's future decisions need
-    // to see that this slot got consumed, even if we don't generate for it.
+    // Stop at the first non-batchable slot. Continuing past would generate
+    // scenes against stale state (see the module-level comment).
+    if (!isBatchable(sceneType)) break;
     simulatedTypes.push(sceneType);
-
-    if (!isBatchable(sceneType)) continue;
 
     const buildArgs: BuildArgs = {
       cast: input.activeCast,

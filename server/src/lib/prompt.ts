@@ -409,8 +409,12 @@ NO other contestants. NO host. Focus entirely on THEM and THEIR current situatio
   } else if (sceneType === "recouple" && !isFinale) {
     // First recouple of the season = "First Coupling". Nobody's paired yet,
     // nobody goes home — the vibe is "pick your partner" not "one of you is
-    // leaving tonight". Different opener + different script framing.
-    const isFirstCoupling = recentScenes.every((s) => s.type !== "recouple");
+    // leaving tonight". Different opener + different script framing. The
+    // caller passes isFirstCoupling explicitly (see BuildArgs) because
+    // recentScenes here is a windowed slice and can't distinguish scene-2
+    // first-coupling from a late-season recouple whose last recouple is
+    // outside the window.
+    const isFirstCoupling = args.isFirstCoupling === true;
     const scriptBlock =
       recoupleScript && recoupleScript.steps.length > 0
         ? `\n\nPRE-DETERMINED PAIRING ORDER (follow this sequence EXACTLY — do not invent other pairings):\n${recoupleScript.steps

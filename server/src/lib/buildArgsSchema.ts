@@ -321,10 +321,159 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   ) {
     return null;
   }
-  // sceneContext, recoupleScript, minigameDefinition: shapes are internal-
-  // only (never inputs users control). We trust them by type here; if we
-  // later expose them to external clients, add narrow checks.
+  if (
+    raw.isFirstCoupling !== undefined &&
+    typeof raw.isFirstCoupling !== "boolean"
+  ) {
+    return null;
+  }
+  // sceneContext, recoupleScript, minigameDefinition originate client-side
+  // but reach the server over HTTP, so a crafted body can poison them —
+  // validate the narrow shape the prompt builder actually reads.
+  if (
+    raw.sceneContext !== undefined &&
+    !isValidSceneContext(raw.sceneContext)
+  ) {
+    return null;
+  }
+  if (
+    raw.recoupleScript !== undefined &&
+    !isValidRecoupleScript(raw.recoupleScript)
+  ) {
+    return null;
+  }
+  if (
+    raw.minigameDefinition !== undefined &&
+    !isValidMinigameDefinition(raw.minigameDefinition)
+  ) {
+    return null;
+  }
   return raw as unknown as BuildArgs;
+}
+
+const VALID_INTENTS: ReadonlySet<string> = new Set([
+  "flirt",
+  "deflect",
+  "reassure",
+  "challenge",
+  "test",
+  "manipulate",
+  "escalate",
+  "soften",
+  "confess",
+  "accuse",
+  "reveal",
+  "deny",
+  "joke",
+  "retreat",
+  "declare",
+]);
+const VALID_PATTERNS: ReadonlySet<string> = new Set([
+  "push_pull",
+  "question_deflection",
+  "soft_accusation",
+  "testing",
+  "confession_cascade",
+  "triangulation",
+  "freeform",
+]);
+const VALID_POWER: ReadonlySet<string> = new Set([
+  "dominant",
+  "equal",
+  "submissive",
+  "outsider",
+]);
+
+function isValidPlannedBeat(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  if (!isShortString(v.speakerId, 64)) return false;
+  if (typeof v.intent !== "string" || !VALID_INTENTS.has(v.intent))
+    return false;
+  if (!isShortString(v.emotionalTone, 200)) return false;
+  if (v.target !== undefined && !isShortString(v.target, 64)) return false;
+  if (v.loud !== undefined && typeof v.loud !== "boolean") return false;
+  return true;
+}
+
+function isValidPerAgentRole(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  if (!isShortString(v.agentId, 64)) return false;
+  if (!isShortString(v.goal, 300)) return false;
+  if (v.hiddenAgenda !== undefined && !isShortString(v.hiddenAgenda, 300))
+    return false;
+  if (!isObj(v.stakes)) return false;
+  const stakes = v.stakes as Record<string, unknown>;
+  if (!isShortString(stakes.whatCanBeLost, 300)) return false;
+  if (!isShortString(stakes.whatCanBeGained, 300)) return false;
+  if (!isObj(v.subtext)) return false;
+  const subtext = v.subtext as Record<string, unknown>;
+  if (!isShortString(subtext.surface, 300)) return false;
+  if (!isShortString(subtext.actual, 300)) return false;
+  if (typeof v.powerPosition !== "string" || !VALID_POWER.has(v.powerPosition))
+    return false;
+  if (
+    typeof v.openingIntent !== "string" ||
+    !VALID_INTENTS.has(v.openingIntent)
+  )
+    return false;
+  return true;
+}
+
+function isValidSceneContext(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  if (typeof v.sceneType !== "string" || !VALID_SCENE_TYPES.has(v.sceneType))
+    return false;
+  if (typeof v.tension !== "number" || v.tension < 0 || v.tension > 100)
+    return false;
+  if (!isShortString(v.powerDynamic, 500)) return false;
+  if (!isShortString(v.recentEvent, 500)) return false;
+  if (typeof v.pattern !== "string" || !VALID_PATTERNS.has(v.pattern))
+    return false;
+  if (!Array.isArray(v.plannedBeats) || v.plannedBeats.length > 16)
+    return false;
+  if (!v.plannedBeats.every(isValidPlannedBeat)) return false;
+  if (!Array.isArray(v.roles) || v.roles.length > MAX_CAST) return false;
+  if (!v.roles.every(isValidPerAgentRole)) return false;
+  if (
+    !Array.isArray(v.callbackHooks) ||
+    v.callbackHooks.length > 16 ||
+    !v.callbackHooks.every((h: unknown) => isShortString(h, 300))
+  ) {
+    return false;
+  }
+  return true;
+}
+
+function isValidRecouplePlanStep(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  return (
+    isShortString(v.chooserId, 64) &&
+    isShortString(v.chooserName, 80) &&
+    isShortString(v.partnerId, 64) &&
+    isShortString(v.partnerName, 80) &&
+    isShortString(v.rationale, 300)
+  );
+}
+
+function isValidRecoupleScript(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  if (!Array.isArray(v.steps) || v.steps.length > MAX_CAST) return false;
+  if (!v.steps.every(isValidRecouplePlanStep)) return false;
+  if (v.unpairedId !== undefined && !isShortString(v.unpairedId, 64))
+    return false;
+  if (v.unpairedName !== undefined && !isShortString(v.unpairedName, 80))
+    return false;
+  return true;
+}
+
+function isValidMinigameDefinition(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  return (
+    isShortString(v.name, 120) &&
+    (v.category === "learn_facts" || v.category === "explore_attraction") &&
+    isShortString(v.rules, 600) &&
+    isShortString(v.winCondition, 300)
+  );
 }
 
 // Export the scene-type sentinel for the route handler to surface as a

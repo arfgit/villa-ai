@@ -28,6 +28,7 @@ import {
   isBatchable,
   planPrefetch,
   prefetchScenes,
+  resetPrefetchState,
   type QueuedScene,
 } from "@/lib/scenePrefetch";
 import { embed } from "@/lib/embeddings";
@@ -925,6 +926,11 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     // fire-and-forget. Don't re-hydrate here — that would race the save and
     // could clobber the cache with stale pre-archive server state.
     refreshTrainingCache().catch(() => {});
+    // Clear the prefetch in-flight guard so the new episode's cold-start
+    // batch isn't blocked by a lingering flag from the previous episode.
+    // Any pending resolve from the old episode is still fenced by the
+    // episode-id check inside triggerPrefetch.
+    resetPrefetchState();
     const newEpisode = createEpisode();
     set((s) => ({
       cast: newEpisode.castPool,
@@ -1468,6 +1474,9 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         seasonTheme: initial.episode.seasonTheme,
         sceneNumber,
         isIntroduction,
+        isFirstCoupling:
+          sceneType === "recouple" &&
+          initial.episode.scenes.every((s) => s.type !== "recouple"),
         isFinale: isFinaleScene,
         forcedParticipants,
         agentMemories,

@@ -469,6 +469,7 @@ export interface BuildArgs {
   totalScenes?: number;
   forcedParticipants?: string[];
   isIntroduction?: boolean;
+  isFirstCoupling?: boolean;
   isFinale?: boolean;
   agentMemories?: Record<string, AgentMemory[]>;
   agentGoals?: Record<string, string>;
