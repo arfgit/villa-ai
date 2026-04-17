@@ -1,6 +1,17 @@
-import type { SceneType } from '@/types'
+import type { SceneType } from "@/types";
 
 export const ENVIRONMENTS: Record<SceneType, string> = {
+  introductions: `      ✦    .    ✦    .    ✦
+   .     ☀    WELCOME    ☀    .
+ ──────────────────────────────
+   🌴          🏝          🌴
+      ┌──────────────────┐
+      │  VILLA ENTRANCE  │
+      └──────────────────┘
+       ╱│╲   ╱│╲   ╱│╲
+     new arrivals, first looks
+ ╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴`,
+
   firepit: `   *   .  ✦  .   *   .  ✦  .
   .  *   .   ✦   .   *   .  ✦
  ──────────────────────────────
@@ -184,37 +195,39 @@ export const ENVIRONMENTS: Record<SceneType, string> = {
    │   #1   │      │   #2   │
    └────────┘      └────────┘
      💬 live chat decides 💬`,
-}
+};
 
-export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> = {
-  firepit: { title: 'Firepit Chat', emoji: '🔥' },
-  pool: { title: 'Pool Hangout', emoji: '🌊' },
-  kitchen: { title: 'Morning Kitchen', emoji: '☕' },
-  bedroom: { title: 'Bedroom Drama', emoji: '🛏️' },
-  recouple: { title: 'Recoupling', emoji: '💔' },
-  date: { title: 'Date Night', emoji: '🕯️' },
-  challenge: { title: 'Challenge', emoji: '🏆' },
-  interview: { title: 'Confessional', emoji: '🎙️' },
-  bombshell: { title: 'Bombshell Arrival', emoji: '💣' },
-  minigame: { title: 'Mini Game', emoji: '🎯' },
-  public_vote: { title: 'Public Vote', emoji: '📱' },
-  islander_vote: { title: 'Islander Vote', emoji: '🗳️' },
-  producer_twist: { title: 'Producer Twist', emoji: '📺' },
-  casa_amor_arrival: { title: 'Casa Amor', emoji: '🏠' },
-  casa_amor_date: { title: 'Casa Date', emoji: '💋' },
-  casa_amor_challenge: { title: 'Casa Challenge', emoji: '🔥' },
-  casa_amor_stickswitch: { title: 'Stick or Switch', emoji: '💔' },
-  grand_finale: { title: 'Grand Finale', emoji: '👑' },
-}
+export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> =
+  {
+    introductions: { title: "Introductions", emoji: "🌅" },
+    firepit: { title: "Firepit Chat", emoji: "🔥" },
+    pool: { title: "Pool Hangout", emoji: "🌊" },
+    kitchen: { title: "Morning Kitchen", emoji: "☕" },
+    bedroom: { title: "Bedroom Drama", emoji: "🛏️" },
+    recouple: { title: "Recoupling", emoji: "💔" },
+    date: { title: "Date Night", emoji: "🕯️" },
+    challenge: { title: "Challenge", emoji: "🏆" },
+    interview: { title: "Confessional", emoji: "🎙️" },
+    bombshell: { title: "Bombshell Arrival", emoji: "💣" },
+    minigame: { title: "Mini Game", emoji: "🎯" },
+    public_vote: { title: "Public Vote", emoji: "📱" },
+    islander_vote: { title: "Islander Vote", emoji: "🗳️" },
+    producer_twist: { title: "Producer Twist", emoji: "📺" },
+    casa_amor_arrival: { title: "Casa Amor", emoji: "🏠" },
+    casa_amor_date: { title: "Casa Date", emoji: "💋" },
+    casa_amor_challenge: { title: "Casa Challenge", emoji: "🔥" },
+    casa_amor_stickswitch: { title: "Stick or Switch", emoji: "💔" },
+    grand_finale: { title: "Grand Finale", emoji: "👑" },
+  };
 
-export const FIRST_COUPLING_LABEL = { title: 'First Coupling', emoji: '💕' }
+export const FIRST_COUPLING_LABEL = { title: "First Coupling", emoji: "💕" };
 
 export function getSceneLabel(
   sceneType: SceneType,
-  recoupleOrdinal?: number
+  recoupleOrdinal?: number,
 ): { title: string; emoji: string } {
-  if (sceneType === 'recouple' && recoupleOrdinal === 1) {
-    return FIRST_COUPLING_LABEL
+  if (sceneType === "recouple" && recoupleOrdinal === 1) {
+    return FIRST_COUPLING_LABEL;
   }
-  return SCENE_LABELS[sceneType]
+  return SCENE_LABELS[sceneType];
 }

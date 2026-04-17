@@ -1542,7 +1542,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       const scene: Scene = {
         id: newId("scene"),
         type: sceneType,
-        title: isIntroduction ? "Introductions" : sceneInfo.title,
+        title: sceneInfo.title,
         participantIds,
         dialogue: llm.dialogue
           .map((d) => {

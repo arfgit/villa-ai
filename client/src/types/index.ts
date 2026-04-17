@@ -1,4 +1,5 @@
 export type SceneType =
+  | "introductions"
   | "firepit"
   | "pool"
   | "kitchen"

@@ -1,6 +1,17 @@
-import type { SceneType } from '@villa-ai/shared'
+import type { SceneType } from "@villa-ai/shared";
 
 export const ENVIRONMENTS: Record<SceneType, string> = {
+  introductions: `      ✦    .    ✦    .    ✦
+   .     ☀    WELCOME    ☀    .
+ ──────────────────────────────
+   🌴          🏝          🌴
+      ┌──────────────────┐
+      │  VILLA ENTRANCE  │
+      └──────────────────┘
+       ╱│╲   ╱│╲   ╱│╲
+     new arrivals, first looks
+ ╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴╴`,
+
   firepit: `   *   .  ✦  .   *   .  ✦  .
   .  *   .   ✦   .   *   .  ✦
  ──────────────────────────────
@@ -110,40 +121,42 @@ export const ENVIRONMENTS: Record<SceneType, string> = {
      ═════  bond boost  ═════
         winner gets +reward`,
 
-  public_vote: '📱 PUBLIC VOTE — the public has spoken',
-  islander_vote: '🗳 ISLANDER VOTE — the cast must choose',
-  producer_twist: '📺 PRODUCER TWIST — expect the unexpected',
-  casa_amor_arrival: '🏠 CASA AMOR — the villa is splitting',
-  casa_amor_date: '💋 CASA DATE — temptation in both villas',
-  casa_amor_challenge: '🔥 CASA CHALLENGE — loyalty tested',
-  casa_amor_stickswitch: '💔 STICK or SWITCH — the most dramatic night',
-  grand_finale: '👑 GRAND FINALE — live chat crowns the winners',
-}
+  public_vote: "📱 PUBLIC VOTE — the public has spoken",
+  islander_vote: "🗳 ISLANDER VOTE — the cast must choose",
+  producer_twist: "📺 PRODUCER TWIST — expect the unexpected",
+  casa_amor_arrival: "🏠 CASA AMOR — the villa is splitting",
+  casa_amor_date: "💋 CASA DATE — temptation in both villas",
+  casa_amor_challenge: "🔥 CASA CHALLENGE — loyalty tested",
+  casa_amor_stickswitch: "💔 STICK or SWITCH — the most dramatic night",
+  grand_finale: "👑 GRAND FINALE — live chat crowns the winners",
+};
 
-export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> = {
-  firepit: { title: 'Firepit Chat', emoji: '🔥' },
-  pool: { title: 'Pool Hangout', emoji: '🌊' },
-  kitchen: { title: 'Morning Kitchen', emoji: '☕' },
-  bedroom: { title: 'Bedroom Drama', emoji: '🛏️' },
-  recouple: { title: 'Recoupling', emoji: '💔' },
-  date: { title: 'Date Night', emoji: '🕯️' },
-  challenge: { title: 'Challenge', emoji: '🏆' },
-  interview: { title: 'Confessional', emoji: '🎙️' },
-  bombshell: { title: 'Bombshell Arrival', emoji: '💣' },
-  minigame: { title: 'Mini Game', emoji: '🎯' },
-  public_vote: { title: 'Public Vote', emoji: '📱' },
-  islander_vote: { title: 'Islander Vote', emoji: '🗳️' },
-  producer_twist: { title: 'Producer Twist', emoji: '📺' },
-  casa_amor_arrival: { title: 'Casa Amor', emoji: '🏠' },
-  casa_amor_date: { title: 'Casa Date', emoji: '💋' },
-  casa_amor_challenge: { title: 'Casa Challenge', emoji: '🔥' },
-  casa_amor_stickswitch: { title: 'Stick or Switch', emoji: '💔' },
-  grand_finale: { title: 'Grand Finale', emoji: '👑' },
-}
+export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> =
+  {
+    introductions: { title: "Introductions", emoji: "🌅" },
+    firepit: { title: "Firepit Chat", emoji: "🔥" },
+    pool: { title: "Pool Hangout", emoji: "🌊" },
+    kitchen: { title: "Morning Kitchen", emoji: "☕" },
+    bedroom: { title: "Bedroom Drama", emoji: "🛏️" },
+    recouple: { title: "Recoupling", emoji: "💔" },
+    date: { title: "Date Night", emoji: "🕯️" },
+    challenge: { title: "Challenge", emoji: "🏆" },
+    interview: { title: "Confessional", emoji: "🎙️" },
+    bombshell: { title: "Bombshell Arrival", emoji: "💣" },
+    minigame: { title: "Mini Game", emoji: "🎯" },
+    public_vote: { title: "Public Vote", emoji: "📱" },
+    islander_vote: { title: "Islander Vote", emoji: "🗳️" },
+    producer_twist: { title: "Producer Twist", emoji: "📺" },
+    casa_amor_arrival: { title: "Casa Amor", emoji: "🏠" },
+    casa_amor_date: { title: "Casa Date", emoji: "💋" },
+    casa_amor_challenge: { title: "Casa Challenge", emoji: "🔥" },
+    casa_amor_stickswitch: { title: "Stick or Switch", emoji: "💔" },
+    grand_finale: { title: "Grand Finale", emoji: "👑" },
+  };
 
 // The first recouple of the season isn't actually a *re*-coupling — nobody
 // has paired up yet — so we label it "First Coupling" wherever it's shown.
-export const FIRST_COUPLING_LABEL = { title: 'First Coupling', emoji: '💕' }
+export const FIRST_COUPLING_LABEL = { title: "First Coupling", emoji: "💕" };
 
 /**
  * Resolve the display label for a scene. For recouple scenes we substitute
@@ -153,10 +166,10 @@ export const FIRST_COUPLING_LABEL = { title: 'First Coupling', emoji: '💕' }
  */
 export function getSceneLabel(
   sceneType: SceneType,
-  recoupleOrdinal?: number
+  recoupleOrdinal?: number,
 ): { title: string; emoji: string } {
-  if (sceneType === 'recouple' && recoupleOrdinal === 1) {
-    return FIRST_COUPLING_LABEL
+  if (sceneType === "recouple" && recoupleOrdinal === 1) {
+    return FIRST_COUPLING_LABEL;
   }
-  return SCENE_LABELS[sceneType]
+  return SCENE_LABELS[sceneType];
 }

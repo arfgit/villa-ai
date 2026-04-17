@@ -407,11 +407,26 @@ export function buildScenePrompt(args: BuildArgs): string {
 
   let direction: string;
   if (isIntroduction) {
-    direction = `SEASON OPENER. ORDER OF EVENTS:
-1. HOST speaks first (1-2 lines) — theatrical welcome to the villa, sets the tone.
-2. Each contestant speaks ONE line — a self-introduction that captures their personality and what they're looking for.
-3. HOST speaks the final line teasing the first mini-game and telling the cast to start getting to know each other.
-DO NOT emit any couple_formed events. The cast does NOT pair up yet — they meet each other here, then build attraction and trust through the next several scenes before they decide who to couple with at the grace recouple later in the season. Sprinkle in subtle attraction_change deltas (+3 to +8) between unexpected pairs based on first impressions to seed chemistry.`;
+    // Introductions scene — host-led, cast intros, light banter.
+    // This prompt is deliberately tight: the opener sets the tone for
+    // the whole season, and noise here (drama, flirting, couplings) makes
+    // later scenes feel repetitive. Tune the beat counts/banter level
+    // here if you want the opener to feel more/less chatty.
+    direction = `SEASON OPENER — "INTRODUCTIONS" scene. ORDER OF EVENTS:
+
+1. HOST speaks first (1-2 lines) — theatrical welcome to the villa, sets the tone for the season. Can tease what's coming without spoiling.
+
+2. Each contestant speaks ONE self-introduction line (${cast.length} lines total, one per contestant). They share name + age + hometown + a voice-y hook that captures their personality and what they're looking for in the villa. Go in a natural order (not alphabetical) — whoever the host gestures to next.
+
+3. LIGHT BANTER — ${Math.max(2, Math.min(4, Math.floor(cast.length / 2)))} short reactive lines sprinkled BETWEEN intros (not all at the end). Examples: a compliment on someone's accent, a surprised laugh at a bold hook, a playful "ok watch out for that one". Keep them warm — no shade, no flirting yet, no rivalries. These lines break up the intro monotony and let personalities bump against each other.
+
+4. HOST speaks the final 1-2 lines — warm close, teases the first mini-game / coupling to come, tells the cast to get to know each other.
+
+HARD RULES for this scene:
+- DO NOT emit any couple_formed or couple_broken events. No one couples up yet — pairings happen at the first recoupling a few scenes later.
+- No flirting beyond a very light "you're cute" compliment. Save the heat for scene 2+.
+- No established drama, jealousy, or rivalries — they've just met.
+- Emit subtle attraction_change deltas (+3 to +8) between 2-4 unexpected pairs based on first impressions, to seed chemistry for the recoupling arc.`;
   } else if (isFinale) {
     direction = `SEASON FINALE (scene ${sceneNumber}). The host gathers everyone one final time. Reference the season's biggest moments via the contestants' memories. Lock in the winning couple via couple_formed events. The vibe should feel climactic and conclusive.`;
   } else if (sceneType === "interview") {
@@ -665,8 +680,16 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
   // Scenes were coming out too sparse — one line per contestant, no arc.
   // Push the LLM to deliver real back-and-forth with multiple beats per agent.
   const minPerContestant = 2;
+  // Intro line count = host open (1-2) + N intros + banter (2-4) + host close (1-2).
+  // Banter scales with cast size so a 4-person cast doesn't feel over-crowded
+  // and a 10-person cast still gets meaningful cross-talk.
+  const introBanterCount = Math.max(
+    2,
+    Math.min(4, Math.floor(cast.length / 2)),
+  );
+  const introTotal = cast.length + introBanterCount + 3;
   const lineCountRule = isIntroduction
-    ? `Exactly ${cast.length + 2} dialogue lines: 1 host opening + ${cast.length} contestant self-intros + 1 host pairing announcement.`
+    ? `${introTotal} to ${introTotal + 2} dialogue lines: 1-2 host opening + ${cast.length} contestant self-intros + ${introBanterCount} short banter reactions sprinkled between intros + 1-2 host closing lines.`
     : isFinale
       ? `14 to 20 dialogue lines for the climactic finale. Every remaining contestant must speak at LEAST ${minPerContestant + 1} times — reflections, callbacks, tearful reveals.`
       : sceneType === "interview"
