@@ -66,21 +66,24 @@ export function nextSceneType(state: PlannerState): SceneType {
 
   // Love Island opening sequence:
   //   scene 0 = introductions (handled above by phase === 'intro')
-  //   scene 1 = first coupling — the ceremony that establishes initial pairs
-  //             before the villa does anything else. Do NOT gate on
-  //             coupleCount: couples only form via recouple, so gating
-  //             creates a chicken-and-egg deadlock
-  //   scene 2 = firepit ambient — couples get to know each other, first
-  //             gossip, first impressions settle in
-  //   scene 3 = pool ambient — more mingling, casual stakes
-  //   scene 4+ = dynamic (dates, mini-games, more ambient, bombshells)
+  //   scene 1 = firepit mingling — cast has just met, no couples exist,
+  //             they're sizing each other up and flirting tentatively.
+  //             This is where the first meaningful attraction deltas land
+  //   scene 2 = pool mingling — second day of hanging out, attractions
+  //             solidify, some rivalries form
+  //   scene 3 = first coupling — by this point the cast has felt some
+  //             chemistry, so pairing up has actual motivation behind it
+  //             (whereas coupling on day 1 would be purely name+look based)
+  //   scene 4 = kitchen — morning after the coupling, couples wake up
+  //             next to their new partner, first gossip starts
+  //   scene 5+ = dynamic (dates, mini-games, more ambient, bombshells)
   //
-  // Mini-games and challenges come LATER (scene 5+). Starting with a game
-  // on scene 2 skipped the "couples getting to know each other" beat that
-  // the real show opens with.
-  if (sceneCount === 1) return "recouple";
-  if (sceneCount === 2) return "firepit";
-  if (sceneCount === 3) return "pool";
+  // Mini-games and challenges come LATER (scene 5+) once couples exist
+  // and have enough history to compete against each other meaningfully.
+  if (sceneCount === 1) return "firepit";
+  if (sceneCount === 2) return "pool";
+  if (sceneCount === 3) return "recouple";
+  if (sceneCount === 4) return "kitchen";
 
   if (
     state.bombshellDatingUntilScene !== null &&

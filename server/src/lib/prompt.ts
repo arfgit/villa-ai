@@ -464,13 +464,13 @@ NO other contestants. NO host. Focus entirely on THEM and THEIR current situatio
         : "";
 
     if (isFirstCoupling) {
-      direction = `FIRST COUPLING — the villa's opening ceremony. This is NOT a recoupling. Nobody's paired yet, NOBODY is going home tonight, nobody is getting eliminated. The vibe is: "pick the person you want to couple up with for now". Excited, slightly nervous, full of possibility.${scriptBlock}
+      direction = `FIRST COUPLING — the villa's opening ceremony. This is NOT a recoupling. Nobody's paired yet, NOBODY is going home tonight, nobody is getting eliminated. The vibe is: "based on the first couple days of mingling, pick who you want to couple up with". Excited, slightly nervous, full of possibility.${scriptBlock}
 
 MANDATORY SHAPE (use the REAL NAMES from the PRE-DETERMINED PAIRING ORDER above — NEVER write literal placeholders like "[Name]" or "[Name A]"):
-1. HOST opens (1-2 lines): something like "Islanders, it's time for your FIRST coupling. You've just met — now it's time to decide who you want to couple up with. Remember, this is just day one. Plenty of time for heads to turn."
+1. HOST opens (1-2 lines): something like "Islanders, it's time for your FIRST coupling. You've spent the last couple days getting a feel for each other — now it's time to pick who you want to couple up with. And remember, couples can always change down the line."
 2. FOR EACH COUPLE in the pairing order (repeat per pair):
    a. HOST calls the CHOOSER forward by real name.
-   b. The CHOOSER gives a short reason (1-2 lines) — based on first impressions from the introductions scene. Can be flirty, nervous, playful. NO deep history references (they literally just met).
+   b. The CHOOSER gives a short reason (1-2 lines) — references a specific moment or vibe from the recent mingling scenes (an in-joke from the pool, a conversation at the firepit, a look across the kitchen). Flirty, nervous, playful. Short history is fair game now.
    c. HOST confirms in ONE line using both real names: e.g. "Maren and Kaia, you are now a couple." Emit a couple_formed event. 1 OTHER contestant may react briefly.
 3. HOST closes with an upbeat line teasing what's coming ("let's see if these pairs last the week").
 
@@ -478,8 +478,7 @@ RULES:
 - NEVER write "recoupling" or reference anyone going home — this is the FIRST coupling, nobody's leaving.
 - NEVER write literal bracket placeholders like "[Name]". Always use real names from the script.
 - The HOST MUST appear in AT LEAST half the lines. The host runs this.
-- NO deep drama callbacks — they just met, there IS no shared history yet.
-- NO self-introductions — that was the previous scene.
+- NO self-introductions — that was scene 1, the contestants already know each other by now.
 - Every pick MUST produce a couple_formed system event.
 - DO NOT emit couple_broken events (no couples exist yet to break).`;
     } else {
@@ -658,6 +657,21 @@ Live chat / public sentiment context — reference this naturally in host dialog
 ${grandFinaleRanking ?? "(no chat data)"}
 
 CRITICAL: This is the LAST scene of the season. No cliffhanger. The narrative MUST land — the winners are crowned by the public vote. Follow the ranking above: the top-ranked couple in the live-chat data is the winner.`;
+  } else if (couples.length === 0 && !isIntroduction) {
+    // Pre-first-coupling mingling phase — scenes 1 and 2 on the Love Island
+    // calendar. Cast has just met at intro; they're hanging out for the
+    // first time. No couples exist yet. The point of these scenes is
+    // BUILDING ATTRACTION before coupling, not drama. Different direction
+    // from the generic chill scene below.
+    direction = `MINGLING PHASE — scene ${sceneNumber}. The cast just met at introductions. No one is coupled up yet. The vibe is first-impressions-turning-into-real-chemistry: testing the waters, light flirting, discovering who you vibe with, shared jokes that hint at potential pairings.
+
+GUIDANCE:
+- Focus on CONVERSATION, not drama. Nobody has history together, so there's nothing to argue about yet.
+- Contestants should gravitate toward each other in small groups of 2-3, exchanging hometowns, testing chemistry, playing it cool or leaning in.
+- Multiple light flirty beats between different potential pairings — this is what the viewer needs to make the first coupling feel earned.
+- A SMALL amount of tension is fine (one person realizes two others are vibing while they're standing alone; one contestant notices someone they're interested in chatting with someone else) — but the dominant mood is curious + warm, not confrontational.
+
+EMIT attraction_change events (+3 to +10) between 3-5 DIFFERENT pairs to seed real chemistry that the first coupling can reference. No couple_formed events (that's scene 3). No jealousy_spike > 5 (it's too early). trust_change only if two people share something personal.`;
   } else {
     const WILDCARDS = [
       "Someone tells a small lie that they'll regret later.",
