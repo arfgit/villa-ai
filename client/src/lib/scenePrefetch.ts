@@ -42,6 +42,7 @@ import {
   applyRealizedScene,
   type WorkingState,
 } from "./workingState";
+import { createFallbackScene } from "./sceneFallback";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
@@ -312,33 +313,58 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
 
   const scenes: QueuedScene[] = [];
   for (const outline of realizable) {
+    const scene = await realizeWithRetryAndFallback(
+      outline,
+      workingState,
+      input,
+      activeIds,
+    );
+    const queued: QueuedScene = { outline, scene };
+    scenes.push(queued);
     try {
-      const buildArgs = buildArgsFor(outline, workingState, input);
-      const scene = await generateSceneFromLlm(buildArgs, activeIds);
-      const queued: QueuedScene = { outline, scene };
-      scenes.push(queued);
-      // INCREMENTAL ENQUEUE — fire the callback the instant each scene
-      // lands. The store appends to sceneQueue immediately so the user's
-      // queue grows one-at-a-time during a 60s cold-start batch instead
-      // of sitting empty until the whole batch finishes.
-      try {
-        input.onSceneReady?.(queued);
-      } catch (cbErr) {
-        console.warn("[scene-prefetch] onSceneReady callback failed:", cbErr);
-      }
-      applyRealizedScene(workingState, outline.type, scene);
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      console.warn(
-        `[scene-prefetch] scene failed (outline seq ${outline.sequence}, type ${outline.type}):`,
-        msg,
-      );
-      // Don't advance working state — next outline uses state as it was
-      // before the failed attempt. Without a fallback-scene step (#8 in
-      // the migration plan) the whole rest of the batch aborts; the next
-      // triggerPrefetch will retry from fresh committed state.
-      break;
+      input.onSceneReady?.(queued);
+    } catch (cbErr) {
+      console.warn("[scene-prefetch] onSceneReady callback failed:", cbErr);
     }
+    // Working state advances regardless of whether this was a real LLM
+    // scene or a fallback — the fallback emits NO state-mutating events
+    // (no systemEvents, no emotionUpdates), so applying it is a no-op
+    // except for appending a stub scene to working.scenes so subsequent
+    // outlines see the scene count advance.
+    applyRealizedScene(workingState, outline.type, scene);
   }
   return scenes;
+}
+
+// Try the LLM twice, then fall back to a templated scene. Two retries
+// is enough to paper over transient rate-limit + parse errors without
+// waiting forever when the provider is truly down. Fallback scenes let
+// the batch keep flowing — otherwise one bad realization would abort
+// the remaining queue slots and the user would stall.
+async function realizeWithRetryAndFallback(
+  outline: SceneOutline,
+  workingState: WorkingState,
+  input: PrefetchInput,
+  activeIds: string[],
+): Promise<LlmSceneResponse> {
+  const maxAttempts = 2;
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      const buildArgs = buildArgsFor(outline, workingState, input);
+      return await generateSceneFromLlm(buildArgs, activeIds);
+    } catch (err) {
+      lastError = err;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.warn(
+        `[scene-prefetch] attempt ${attempt + 1} failed (outline seq ${outline.sequence}, type ${outline.type}):`,
+        msg,
+      );
+    }
+  }
+  console.warn(
+    `[scene-prefetch] both attempts exhausted for seq ${outline.sequence} (${outline.type}) — using fallback template.`,
+    lastError instanceof Error ? lastError.message : lastError,
+  );
+  return createFallbackScene(outline, input.activeCast);
 }

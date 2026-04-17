@@ -104,6 +104,30 @@ interface UiState {
   isPaused: boolean;
 }
 
+// Prefetch telemetry. Kept lightweight (counts + timings) — not a
+// structured metrics pipeline. Read by devtools or a future debug
+// panel. Counts are cumulative across the episode; reset on
+// startNewEpisode.
+export interface PrefetchMetrics {
+  batchesStarted: number;
+  batchesCompleted: number;
+  scenesReady: number;
+  scenesFailed: number;
+  fallbacksEmitted: number;
+  lastBatchMs: number | null;
+  lastReadyAt: number | null; // epoch ms
+}
+
+const INITIAL_PREFETCH_METRICS: PrefetchMetrics = {
+  batchesStarted: 0,
+  batchesCompleted: 0,
+  scenesReady: 0,
+  scenesFailed: 0,
+  fallbacksEmitted: 0,
+  lastBatchMs: null,
+  lastReadyAt: null,
+};
+
 interface VillaState {
   cast: Agent[];
   episode: Episode;
@@ -113,6 +137,7 @@ interface VillaState {
   lastError: string | null;
   generationProgress: { percent: number; label: string } | null;
   sceneQueue: QueuedScene[];
+  prefetchMetrics: PrefetchMetrics;
   viewerMessages: ViewerMessage[];
   ui: UiState;
 
@@ -916,6 +941,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   lastError: null,
   generationProgress: null,
   sceneQueue: [],
+  prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
   viewerMessages: [],
   ui: { ...DEFAULT_UI },
 
@@ -940,6 +966,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       lastError: null,
       generationProgress: null,
       sceneQueue: [],
+      prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
       viewerMessages: [],
       ui: { ...s.ui, isPaused: false },
     }));
@@ -982,6 +1009,16 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     if (!policy) return;
 
     const snapshotEpisodeId = state.episode.id;
+    const batchStartedAt = Date.now();
+    // Metrics: batch started. scenesReady / lastReadyAt tick inside
+    // onSceneReady as each scene lands. batchesCompleted + lastBatchMs
+    // tick in the final .then() below.
+    set((s) => ({
+      prefetchMetrics: {
+        ...s.prefetchMetrics,
+        batchesStarted: s.prefetchMetrics.batchesStarted + 1,
+      },
+    }));
     prefetchScenes({
       activeCast,
       scenes: simulatedScenes,
@@ -1002,13 +1039,32 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       // don't leak into a newly-started episode.
       onSceneReady: (queued) => {
         if (get().episode.id !== snapshotEpisodeId) return;
-        set((s) => ({ sceneQueue: [...s.sceneQueue, queued] }));
+        set((s) => ({
+          sceneQueue: [...s.sceneQueue, queued],
+          prefetchMetrics: {
+            ...s.prefetchMetrics,
+            scenesReady: s.prefetchMetrics.scenesReady + 1,
+            lastReadyAt: Date.now(),
+          },
+        }));
       },
     })
       .then(() => {
-        // Intentional no-op — scenes were appended incrementally via
-        // onSceneReady. The return value is unused in the new model;
-        // it's kept for the promise chain so we can still catch errors.
+        // Metrics: batch finished. lastBatchMs captures wallclock from
+        // trigger→done so devtools / debug panel can see whether
+        // prefetch is keeping up with playback pace.
+        if (get().episode.id !== snapshotEpisodeId) return;
+        const elapsed = Date.now() - batchStartedAt;
+        set((s) => ({
+          prefetchMetrics: {
+            ...s.prefetchMetrics,
+            batchesCompleted: s.prefetchMetrics.batchesCompleted + 1,
+            lastBatchMs: elapsed,
+          },
+        }));
+        console.log(
+          `[scene-prefetch] batch done — ${elapsed}ms, queue depth ${get().sceneQueue.length}`,
+        );
       })
       .catch((err) => {
         const msg = err instanceof Error ? err.message : String(err);
