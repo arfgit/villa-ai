@@ -32,12 +32,7 @@ export default function AsciiStage({
   focusedPair,
 }: Props) {
   const env = ENVIRONMENTS[sceneType];
-  const baseLabel = getSceneLabel(sceneType, recoupleOrdinal);
-  // Scene 1 is always the opener. Callers historically reused the firepit
-  // environment for that scene, but visually it is an introductions round —
-  // rename on the stage so it doesn't read as a generic firepit chat.
-  const label =
-    sceneNumber === 1 ? { title: "Introductions", emoji: "👋" } : baseLabel;
+  const label = getSceneLabel(sceneType, recoupleOrdinal);
 
   function getEmotion(id: string) {
     return emotions.find((e) => e.agentId === id)?.primary ?? "neutral";

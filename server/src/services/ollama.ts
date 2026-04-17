@@ -49,9 +49,10 @@ export async function generateSceneFromOllama(
           },
         }),
       });
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `Could not reach Ollama at ${host}. Make sure Ollama is running and CORS is allowed for the dev server. ` +
+        `Could not reach Ollama at ${host}: ${detail}. Make sure Ollama is running and CORS is allowed for the dev server. ` +
           `On macOS: \`launchctl setenv OLLAMA_ORIGINS "*"\` then restart the Ollama app. ` +
           `Or run from terminal: \`OLLAMA_ORIGINS="*" ollama serve\`.`,
       );
@@ -134,9 +135,10 @@ export async function generateBatchFromOllama(
           },
         }),
       });
-    } catch {
+    } catch (err) {
+      const detail = err instanceof Error ? err.message : String(err);
       throw new Error(
-        `Could not reach Ollama at ${host}. Make sure Ollama is running and CORS is allowed.`,
+        `Could not reach Ollama at ${host}: ${detail}. Make sure Ollama is running and CORS is allowed.`,
       );
     }
 

@@ -60,6 +60,23 @@ function isValidAgentIdArray(raw: unknown): raw is string[] {
   );
 }
 
+// Whitelist LLM errors that are safe to forward to the client verbatim —
+// rate-limit messages are actionable (tells the user to top up / wait) and
+// don't leak internals. Everything else gets a generic message; the full
+// error is still logged server-side for debugging.
+function sanitizeErrorMessage(msg: string): string {
+  const lower = msg.toLowerCase();
+  const isRateLimit =
+    lower.includes("rate limit") ||
+    lower.includes("quota") ||
+    lower.includes("resource_exhausted") ||
+    lower.includes("free tier") ||
+    lower.includes("prepayment") ||
+    msg.includes("429");
+  if (isRateLimit) return msg;
+  return "LLM generation failed — see server logs for details";
+}
+
 // POST /api/llm/generate — one scene. Provider (gemini/ollama) is resolved
 // server-side from LLM_PROVIDER, so clients don't need to know or care.
 llmRouter.post("/generate", async (req, res) => {
@@ -85,7 +102,7 @@ llmRouter.post("/generate", async (req, res) => {
   } catch (err) {
     const msg = err instanceof Error ? err.message : "LLM generation failed";
     console.error("[llm] generate error:", msg);
-    res.status(502).json({ error: msg });
+    res.status(502).json({ error: sanitizeErrorMessage(msg) });
   }
 });
 
@@ -112,6 +129,6 @@ llmRouter.post("/batch", async (req, res) => {
     const msg =
       err instanceof Error ? err.message : "LLM batch generation failed";
     console.error("[llm] batch error:", msg);
-    res.status(502).json({ error: msg });
+    res.status(502).json({ error: sanitizeErrorMessage(msg) });
   }
 });

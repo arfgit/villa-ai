@@ -24,20 +24,21 @@ import { nextSceneType as planNextScene } from "./seasonPlanner";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 //
-// Scene types worth prefetching. Procedural scenes (minigame, recouple,
-// bombshell, casa_amor_*, grand_finale, public_vote) depend on current
-// state/choices that stale-predict badly — generating them ahead of time
-// produces scenes that don't match the board when the user hits play.
+// Scene types worth prefetching. We stick to ambient social scenes whose
+// prompts depend only on the cast + relationship state, not on per-scene
+// choices the main path makes (interview subject, reward-date couple,
+// ensemble composition). Excluded:
+//   - minigame, recouple, bombshell, casa_amor_* → procedural / state-picky
+//   - interview → needs interviewSubjectId from the main path
+//   - date → needs reward-date couple selection from the main path
+//   - introductions → only fires on scene 0, which is never prefetched
 //
-// Tune this set if you want more/less prefetch coverage.
+// Tune this set if you add scene types that are safe to generate ahead.
 const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
-  "introductions",
   "firepit",
   "pool",
   "kitchen",
   "bedroom",
-  "date",
-  "interview",
 ]);
 
 export function isBatchable(sceneType: SceneType): boolean {
@@ -92,19 +93,31 @@ export interface PrefetchInput {
 }
 
 /**
+ * A prefetched scene keeps the sceneType it was generated FOR. When the
+ * main-path planner runs at consumption time, it checks the tag against
+ * the freshly-planned type and skips the entry on mismatch — because
+ * planNextScene has random weighting and couples-based branching, the
+ * predicted type at prefetch time is not guaranteed to match.
+ */
+export interface QueuedScene {
+  sceneType: SceneType;
+  scene: LlmSceneResponse;
+}
+
+/**
  * Plan + generate N prefetch scenes in parallel. Returns the successfully
- * generated ones in order.
+ * generated ones tagged with the sceneType they were written for.
  *
  * Planning is done linearly from the CURRENT state — we don't simulate
  * future state changes between prefetched scenes, so predictions get
  * fuzzier the deeper the batch. Depth > 3 is not recommended.
  *
- * If any predicted scene type isn't batchable (procedural), we stop
- * planning at that point and return whatever we planned so far.
+ * If any predicted scene type isn't batchable (procedural / state-picky),
+ * we stop planning at that point and return whatever we planned so far.
  */
 export async function prefetchScenes(
   input: PrefetchInput,
-): Promise<LlmSceneResponse[]> {
+): Promise<QueuedScene[]> {
   const activeIds = input.activeCast.map((a) => a.id);
 
   const planned: Array<{ sceneType: SceneType; prompt: string }> = [];
@@ -144,7 +157,7 @@ export async function prefetchScenes(
       sceneType,
       seasonTheme: input.seasonTheme,
       sceneNumber: input.scenes.length + planned.length + 1,
-      isIntroduction: sceneType === "introductions",
+      isIntroduction: false,
       isFinale: false,
     });
     planned.push({ sceneType, prompt });
@@ -154,13 +167,15 @@ export async function prefetchScenes(
 
   const results = await Promise.all(
     planned.map((p) =>
-      generateSceneFromLlm(p.prompt, activeIds).catch((err) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        console.warn("[scene-prefetch] scene failed:", msg);
-        return null;
-      }),
+      generateSceneFromLlm(p.prompt, activeIds)
+        .then((scene): QueuedScene => ({ sceneType: p.sceneType, scene }))
+        .catch((err) => {
+          const msg = err instanceof Error ? err.message : String(err);
+          console.warn("[scene-prefetch] scene failed:", msg);
+          return null;
+        }),
     ),
   );
 
-  return results.filter((r): r is LlmSceneResponse => r !== null);
+  return results.filter((r): r is QueuedScene => r !== null);
 }

@@ -11,7 +11,11 @@ export type LlmProvider = "gemini" | "ollama";
 export function getProvider(): LlmProvider {
   const explicit = process.env.LLM_PROVIDER;
   if (explicit === "ollama" || explicit === "gemini") return explicit;
-  return process.env.NODE_ENV !== "production" ? "ollama" : "gemini";
+  // Default to gemini — Cloud Functions sets NODE_ENV=production, and even
+  // in dev we'd rather fail loudly on a missing GEMINI_API_KEY than hang
+  // trying to reach an Ollama instance that might not be running. Set
+  // LLM_PROVIDER=ollama explicitly to opt in to the local path.
+  return "gemini";
 }
 
 export async function generateScene(

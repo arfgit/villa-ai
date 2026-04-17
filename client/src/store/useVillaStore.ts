@@ -24,7 +24,11 @@ import {
 import { buildScenePrompt } from "@/lib/prompt";
 import { buildSceneContext } from "@/lib/sceneEngine";
 import { generateScene as generateSceneFromLlm } from "@/lib/llm";
-import { planPrefetch, prefetchScenes } from "@/lib/scenePrefetch";
+import {
+  planPrefetch,
+  prefetchScenes,
+  type QueuedScene,
+} from "@/lib/scenePrefetch";
 import { embed } from "@/lib/embeddings";
 import { retrieveMemories, buildRetrievalQuery } from "@/lib/memory";
 import {
@@ -106,7 +110,7 @@ interface VillaState {
   isGenerating: boolean;
   lastError: string | null;
   generationProgress: { percent: number; label: string } | null;
-  sceneQueue: LlmSceneResponse[];
+  sceneQueue: QueuedScene[];
   viewerMessages: ViewerMessage[];
   ui: UiState;
 
@@ -1482,17 +1486,34 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;
       const queue = initial.sceneQueue;
-      if (queue.length > 0) {
-        llm = queue[0]!;
+      // Only consume a queued scene if it was generated for THIS sceneType.
+      // planNextScene is non-deterministic (random weighting, state-sensitive
+      // branching), so the prefetched type can diverge from the current-run
+      // decision — using a mismatched queued scene would commit a pool/firepit
+      // response under, say, a bombshell slot and corrupt the episode.
+      const queueHead = queue[0];
+      if (queueHead && queueHead.sceneType === sceneType) {
+        llm = queueHead.scene;
         sceneWasQueued = true;
-        set({
-          sceneQueue: queue.slice(1),
+        // Functional update: the prefetch runner may have appended more
+        // scenes between when we snapshot `queue` and when we write back,
+        // and a naive slice(1) of the old snapshot would silently drop them.
+        set((s) => ({
+          sceneQueue: s.sceneQueue.slice(1),
           generationProgress: {
             percent: 40,
             label: "processing queued scene...",
           },
-        });
+        }));
       } else {
+        // Queue head was for a different type — drop it so we don't keep
+        // re-checking the same stale entry, then generate live.
+        if (queueHead) {
+          console.warn(
+            `[scene-queue] head was for ${queueHead.sceneType}, need ${sceneType} — discarding`,
+          );
+          set((s) => ({ sceneQueue: s.sceneQueue.slice(1) }));
+        }
         set({
           generationProgress: {
             percent: 10,
