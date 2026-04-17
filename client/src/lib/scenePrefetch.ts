@@ -1,12 +1,24 @@
-// Scene prefetch policy + runner.
+// Scene prefetch — the "writers room" runs during playback, not between
+// scenes, so the user never watches a loading bar mid-episode.
 //
-// The viewer experience goal is: after the opener renders, scenes flow one
-// after another without a visible "generating…" spinner between them. We
-// achieve that by generating the next few scenes in parallel and parking
-// them in a queue the store can drain on demand.
+// The store calls `triggerPrefetch(state)` at two moments:
+//   1. right after a scene commits (so gen time overlaps with the next
+//      scene's playback);
+//   2. when a scene's line-by-line playback starts (belt-and-braces — if
+//      commit-time trigger was rate-limited or the user advanced faster
+//      than gen, this catches up).
 //
-// This file owns WHEN to prefetch and HOW MANY. The store owns committing
-// scenes to state and consuming from the queue.
+// A module-level single-flight flag keeps these two triggers from firing
+// overlapping batches. Episode-id fencing keeps a pre-episode-switch run
+// from leaking its results into the new episode.
+//
+// Non-batchable scene types (minigame, recouple, bombshell, etc.) need
+// per-scene setup the prefetcher doesn't have (interviewSubjectId, reward
+// couple, etc.), so we don't generate them speculatively. We still plan
+// PAST them, though: if the predicted sequence is [pool, minigame, pool],
+// we generate scenes 1 + 3 and let the main path live-gen scene 2. The
+// store's consumer only pops a queued scene when its tagged sceneType
+// matches the live-planned one.
 
 import type {
   Agent,
@@ -23,17 +35,10 @@ import { generateScene as generateSceneFromLlm } from "./llm";
 import { nextSceneType as planNextScene } from "./seasonPlanner";
 
 // ── Policy ──────────────────────────────────────────────────────────────
-//
-// Scene types worth prefetching. We stick to ambient social scenes whose
-// prompts depend only on the cast + relationship state, not on per-scene
-// choices the main path makes (interview subject, reward-date couple,
-// ensemble composition). Excluded:
-//   - minigame, recouple, bombshell, casa_amor_* → procedural / state-picky
-//   - interview → needs interviewSubjectId from the main path
-//   - date → needs reward-date couple selection from the main path
-//   - introductions → only fires on scene 0, which is never prefetched
-//
-// Tune this set if you add scene types that are safe to generate ahead.
+
+// Scene types we prefetch. Ambient social scenes — their prompts depend
+// only on cast + relationship state, not per-scene selections (interview
+// subject, reward-date couple, elimination narrative) the main path does.
 const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
   "firepit",
   "pool",
@@ -45,21 +50,24 @@ export function isBatchable(sceneType: SceneType): boolean {
   return BATCHABLE_TYPES.has(sceneType);
 }
 
+// Maximum number of prefetched scenes to hold at once. Deeper queue = less
+// chance of a user waiting, more wasted generation on mispredicts. 5 covers
+// a typical 5-scene lookahead window without getting spicy on mispredicts.
+const TARGET_QUEUE_DEPTH = 5;
+
+// Only top up when the queue drops below this. Prevents us from firing a
+// batch on every single playback-start event. 3 leaves plenty of buffer
+// while letting the queue drain to 2 before re-filling.
+const TOPUP_THRESHOLD = 3;
+
+// How many slots ahead we'll PLAN past a non-batchable scene. Each slot
+// we skip is one less LLM call; this bounds the waste.
+const MAX_LOOKAHEAD = 8;
+
 export interface PrefetchPolicy {
-  depth: number;
+  gapToFill: number;
 }
 
-/**
- * Decide whether to prefetch, and how deep. Returns null to skip.
- *
- * Default policy:
- *   - Right after the opener, batch 3 so the user doesn't stall between
- *     scenes 1-3.
- *   - Whenever the queue drops to 0 or 1, top up with 2 more.
- *
- * Change these numbers to make the villa feel snappier (deeper batch) or
- * cheaper to run (shallower batch).
- */
 export function planPrefetch(
   queueLength: number,
   sceneCount: number,
@@ -69,8 +77,14 @@ export function planPrefetch(
   if (isPaused) return null;
   if (activeCastSize < 2) return null;
 
-  if (sceneCount === 1 && queueLength === 0) return { depth: 3 };
-  if (queueLength <= 1) return { depth: 2 };
+  // Cold start — after the opener commits, slam the queue up to target
+  // depth so every post-opener scene is already waiting.
+  if (sceneCount === 1 && queueLength === 0) {
+    return { gapToFill: TARGET_QUEUE_DEPTH };
+  }
+  if (queueLength < TOPUP_THRESHOLD) {
+    return { gapToFill: TARGET_QUEUE_DEPTH - queueLength };
+  }
   return null;
 }
 
@@ -89,52 +103,80 @@ export interface PrefetchInput {
   bombshellDatingUntilScene: number | null;
   casaAmorState: CasaAmorState | null;
   avgDramaScore: number;
-  depth: number;
+  gapToFill: number;
 }
 
-/**
- * A prefetched scene keeps the sceneType it was generated FOR. When the
- * main-path planner runs at consumption time, it checks the tag against
- * the freshly-planned type and skips the entry on mismatch — because
- * planNextScene has random weighting and couples-based branching, the
- * predicted type at prefetch time is not guaranteed to match.
- */
+// A prefetched scene keeps the sceneType it was generated FOR. At
+// consumption time, the store checks this tag against the freshly-planned
+// sceneType and only pops on a match. Mismatched entries stay at the head
+// of the queue until the planner lines up with them.
 export interface QueuedScene {
   sceneType: SceneType;
   scene: LlmSceneResponse;
 }
 
+// Single-flight guard. The store calls triggerPrefetch from two sites
+// (post-commit + playback-start); we want at most one run in flight at a
+// time so we don't double-spend on LLM quota.
+let inFlight = false;
+
+export function isPrefetchInFlight(): boolean {
+  return inFlight;
+}
+
+function simulateFutureScenes(
+  existing: Scene[],
+  plannedTypes: SceneType[],
+): Scene[] {
+  // Planner reads `scenes.length`, `scenes.filter(type === 'recouple')`, etc.
+  // Stub scenes with just the `type` field — other fields are not consulted
+  // by the planner's branching logic.
+  return [
+    ...existing,
+    ...plannedTypes.map((type) => ({ type }) as unknown as Scene),
+  ];
+}
+
 /**
- * Plan + generate N prefetch scenes in parallel. Returns the successfully
- * generated ones tagged with the sceneType they were written for.
+ * Plan + generate prefetch scenes in parallel.
  *
- * Planning is done linearly from the CURRENT state — we don't simulate
- * future state changes between prefetched scenes, so predictions get
- * fuzzier the deeper the batch. Depth > 3 is not recommended.
+ * We walk up to MAX_LOOKAHEAD planner steps forward, collecting `gapToFill`
+ * batchable scene types. Non-batchable slots are included in the simulated
+ * state advancement (so subsequent index-based planner branches see the
+ * right scene count) but skipped for generation — the main path will live-
+ * gen them when they come up.
  *
- * If any predicted scene type isn't batchable (procedural / state-picky),
- * we stop planning at that point and return whatever we planned so far.
+ * Errors on individual scenes are logged and skipped (Promise.allSettled);
+ * a single rate-limited call doesn't take down the whole batch.
  */
 export async function prefetchScenes(
   input: PrefetchInput,
 ): Promise<QueuedScene[]> {
-  const activeIds = input.activeCast.map((a) => a.id);
+  if (inFlight) return [];
+  if (input.gapToFill <= 0) return [];
+  inFlight = true;
+  try {
+    return await runPrefetch(input);
+  } finally {
+    inFlight = false;
+  }
+}
 
-  const planned: Array<{ sceneType: SceneType; buildArgs: BuildArgs }> = [];
+async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
+  const activeIds = input.activeCast.map((a) => a.id);
   const recoupleCount = input.scenes.filter(
     (s) => s.type === "recouple",
   ).length;
 
-  for (let i = 0; i < input.depth; i++) {
-    // Fake-extend scenes with our planned types so the planner advances the
-    // index; actual outcomes aren't known yet, but index-based branches are.
-    const simulatedScenes: Scene[] = [
-      ...input.scenes,
-      ...planned.map((p) => ({ type: p.sceneType }) as Scene),
-    ];
+  const planned: Array<{ sceneType: SceneType; buildArgs: BuildArgs }> = [];
+  const simulatedTypes: SceneType[] = [];
+  let stepsExamined = 0;
+
+  while (planned.length < input.gapToFill && stepsExamined < MAX_LOOKAHEAD) {
+    stepsExamined++;
 
     const sceneType = planNextScene({
-      scenes: simulatedScenes,
+      scenes: simulateFutureScenes(input.scenes, simulatedTypes),
       activeCastCount: input.activeCast.length,
       bombshellsIntroduced: input.bombshellsIntroduced.length,
       bombshellPoolSize: input.bombshellPool.length,
@@ -146,7 +188,11 @@ export async function prefetchScenes(
       recoupleCount,
     });
 
-    if (!isBatchable(sceneType)) break;
+    // Always advance the simulation — the planner's future decisions need
+    // to see that this slot got consumed, even if we don't generate for it.
+    simulatedTypes.push(sceneType);
+
+    if (!isBatchable(sceneType)) continue;
 
     const buildArgs: BuildArgs = {
       cast: input.activeCast,
@@ -156,7 +202,7 @@ export async function prefetchScenes(
       recentScenes: input.scenes.slice(-3),
       sceneType,
       seasonTheme: input.seasonTheme,
-      sceneNumber: input.scenes.length + planned.length + 1,
+      sceneNumber: input.scenes.length + simulatedTypes.length,
       isIntroduction: false,
       isFinale: false,
     };
@@ -165,17 +211,23 @@ export async function prefetchScenes(
 
   if (planned.length === 0) return [];
 
-  const results = await Promise.all(
+  const settled = await Promise.allSettled(
     planned.map((p) =>
-      generateSceneFromLlm(p.buildArgs, activeIds)
-        .then((scene): QueuedScene => ({ sceneType: p.sceneType, scene }))
-        .catch((err) => {
-          const msg = err instanceof Error ? err.message : String(err);
-          console.warn("[scene-prefetch] scene failed:", msg);
-          return null;
-        }),
+      generateSceneFromLlm(p.buildArgs, activeIds).then(
+        (scene): QueuedScene => ({ sceneType: p.sceneType, scene }),
+      ),
     ),
   );
 
-  return results.filter((r): r is QueuedScene => r !== null);
+  const scenes: QueuedScene[] = [];
+  for (const r of settled) {
+    if (r.status === "fulfilled") {
+      scenes.push(r.value);
+    } else {
+      const msg =
+        r.reason instanceof Error ? r.reason.message : String(r.reason);
+      console.warn("[scene-prefetch] scene failed:", msg);
+    }
+  }
+  return scenes;
 }

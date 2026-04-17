@@ -331,6 +331,88 @@ export function generateViewerReactions(
     });
   }
 
+  // Emotion-cluster reactions. When the scene leans hard in one emotional
+  // direction (3+ lines of the same emotion), chat clocks the mood shift —
+  // this catches scenes where the LLM didn't tag anything `quotable` but
+  // the tone is still distinct.
+  const emotionCounts: Record<string, number> = {};
+  const dialogueOnly = scene.dialogue.filter((d) => d.agentId !== "host");
+  for (const line of dialogueOnly) {
+    emotionCounts[line.emotion] = (emotionCounts[line.emotion] ?? 0) + 1;
+  }
+  const sortedEmotions = Object.entries(emotionCounts).sort(
+    (a, b) => b[1] - a[1],
+  );
+  const topEmotion = sortedEmotions[0];
+  if (topEmotion && topEmotion[1] >= 3) {
+    const [emo] = topEmotion;
+    const sample = dialogueOnly.find((d) => d.emotion === emo);
+    const sampleName = sample ? getName(sample.agentId) : null;
+    const clusterText: Record<string, string> = {
+      angry: sampleName
+        ? `everyone's FUMING this scene and ${sampleName} is leading the charge`
+        : "the villa is at each other's throats tonight",
+      jealous: sampleName
+        ? `the jealousy in this scene is so thick you could cut it. ${sampleName} 😬`
+        : "jealousy levels are UNHINGED",
+      flirty: sampleName
+        ? `${sampleName} and co. are out here giggling and kicking their feet rn`
+        : "everyone's flirty tonight, love is in the air 💕",
+      sad: "this scene has me reaching for the tissues ngl",
+      shocked: "the gasps in this scene are SENDING me",
+      happy: "i love when the villa is actually happy together",
+      smug: "the smugness in this scene is OFF the charts",
+      anxious: "the vibes are so nervous rn, everyone spiralling",
+    };
+    if (clusterText[emo]) {
+      const sentimentMap: Record<string, ViewerMessage["sentiment"]> = {
+        angry: "chaotic",
+        jealous: "chaotic",
+        flirty: "positive",
+        sad: "negative",
+        shocked: "negative",
+        happy: "positive",
+        smug: "neutral",
+        anxious: "negative",
+      };
+      messages.push({
+        id: `vm_${++idCounter}`,
+        username: pickUsername(),
+        text: clusterText[emo]!,
+        timestamp: Date.now(),
+        sentiment: sentimentMap[emo] ?? "neutral",
+      });
+    }
+  }
+
+  // Target-fixation reactions. When one person is the target of 3+ lines,
+  // the villa is "ganging up" — chat registers that dynamic with a reaction
+  // naming the target specifically.
+  const targetCounts: Record<string, number> = {};
+  for (const line of dialogueOnly) {
+    if (line.targetAgentId) {
+      targetCounts[line.targetAgentId] =
+        (targetCounts[line.targetAgentId] ?? 0) + 1;
+    }
+  }
+  const topTarget = Object.entries(targetCounts).sort((a, b) => b[1] - a[1])[0];
+  if (topTarget && topTarget[1] >= 3) {
+    const targetName = getName(topTarget[0]);
+    const fixationLines = [
+      `everyone coming for ${targetName} this scene is WILD`,
+      `why is it always ${targetName} in the middle of it 😭`,
+      `${targetName} can NOT catch a break tonight`,
+      `chat it is OPEN SEASON on ${targetName}`,
+    ];
+    messages.push({
+      id: `vm_${++idCounter}`,
+      username: pickUsername(),
+      text: fixationLines[Math.floor(Math.random() * fixationLines.length)]!,
+      timestamp: Date.now(),
+      sentiment: "chaotic",
+    });
+  }
+
   // Couple events
   for (const event of scene.systemEvents) {
     if (event.type === "couple_formed" && event.fromId && event.toId) {

@@ -407,6 +407,10 @@ STRUCTURE:
 
 NO other contestants. NO host. Focus entirely on THEM and THEIR current situation. Reference brain memories of prior beats between them. Emit attraction_change and trust_change reflecting how the conversation actually went.`;
   } else if (sceneType === "recouple" && !isFinale) {
+    // First recouple of the season = "First Coupling". Nobody's paired yet,
+    // nobody goes home — the vibe is "pick your partner" not "one of you is
+    // leaving tonight". Different opener + different script framing.
+    const isFirstCoupling = recentScenes.every((s) => s.type !== "recouple");
     const scriptBlock =
       recoupleScript && recoupleScript.steps.length > 0
         ? `\n\nPRE-DETERMINED PAIRING ORDER (follow this sequence EXACTLY — do not invent other pairings):\n${recoupleScript.steps
@@ -415,12 +419,33 @@ NO other contestants. NO host. Focus entirely on THEM and THEIR current situatio
                 `  ${i + 1}. Host calls ${clip(s.chooserName, 60)} forward → ${clip(s.chooserName, 60)} picks ${clip(s.partnerName, 60)} (reason the chooser can use: ${clip(s.rationale, 120)}) → Host confirms, emit couple_formed(fromId=${s.chooserId}, toId=${s.partnerId})`,
             )
             .join("\n")}${
-            recoupleScript.unpairedName
+            recoupleScript.unpairedName && !isFirstCoupling
               ? `\n  ${recoupleScript.steps.length + 1}. Host announces ${clip(recoupleScript.unpairedName, 60)} has not been chosen — they are going home.`
               : ""
           }\n`
         : "";
-    direction = `RECOUPLING — A 1-BY-1 PAIRING CEREMONY DRIVEN BY THE HOST. NOT a drama scene. NOT a monologue from one contestant.${scriptBlock}
+
+    if (isFirstCoupling) {
+      direction = `FIRST COUPLING — the villa's opening ceremony. This is NOT a recoupling. Nobody's paired yet, NOBODY is going home tonight, nobody is getting eliminated. The vibe is: "pick the person you want to couple up with for now". Excited, slightly nervous, full of possibility.${scriptBlock}
+
+MANDATORY SHAPE (use the REAL NAMES from the PRE-DETERMINED PAIRING ORDER above — NEVER write literal placeholders like "[Name]" or "[Name A]"):
+1. HOST opens (1-2 lines): something like "Islanders, it's time for your FIRST coupling. You've just met — now it's time to decide who you want to couple up with. Remember, this is just day one. Plenty of time for heads to turn."
+2. FOR EACH COUPLE in the pairing order (repeat per pair):
+   a. HOST calls the CHOOSER forward by real name.
+   b. The CHOOSER gives a short reason (1-2 lines) — based on first impressions from the introductions scene. Can be flirty, nervous, playful. NO deep history references (they literally just met).
+   c. HOST confirms in ONE line using both real names: e.g. "Maren and Kaia, you are now a couple." Emit a couple_formed event. 1 OTHER contestant may react briefly.
+3. HOST closes with an upbeat line teasing what's coming ("let's see if these pairs last the week").
+
+RULES:
+- NEVER write "recoupling" or reference anyone going home — this is the FIRST coupling, nobody's leaving.
+- NEVER write literal bracket placeholders like "[Name]". Always use real names from the script.
+- The HOST MUST appear in AT LEAST half the lines. The host runs this.
+- NO deep drama callbacks — they just met, there IS no shared history yet.
+- NO self-introductions — that was the previous scene.
+- Every pick MUST produce a couple_formed system event.
+- DO NOT emit couple_broken events (no couples exist yet to break).`;
+    } else {
+      direction = `RECOUPLING — A 1-BY-1 PAIRING CEREMONY DRIVEN BY THE HOST. NOT a drama scene. NOT a monologue from one contestant.${scriptBlock}
 
 The host runs this like a ceremony. Every single pairing is ANNOUNCED by the host and explained before the next one happens. This is procedural, suspenseful, and the camera (i.e. the dialogue focus) cycles through everyone.
 
@@ -442,6 +467,7 @@ RULES:
 - DO NOT let a single contestant dominate. One speaker should not appear more than 3 times.
 - DO NOT do self-introductions. The villa knows each other — no "Hey guys, I'm [name], [age] from [city]" lines.
 - Drama is FINE but it must flow THROUGH the ceremony structure — not replace it.`;
+    }
   } else if (sceneType === "public_vote" && eliminationNarrative) {
     direction = `PUBLIC VOTE ELIMINATION. The public has been voting and the results are in.
 
@@ -659,7 +685,11 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
   // Scene-type-specific anti-patterns. Kept global so every branch inherits the
   // same forbidden moves — prior fix rounds discovered the LLM would drift back
   // into introductions / off-focus drama when a single branch relaxed a rule.
-  const antiPatterns: string[] = [];
+  const antiPatterns: string[] = [
+    // Every scene regardless of type.
+    'NO emoji leaders. Dialogue lines must start with a letter or a "*action*" marker, NEVER with an emoji/pictograph like "🕉" or "🤓". The emojiFace on a character is a render concern, not dialogue content.',
+    'NO decorative separators. Don\'t insert "¦", "|", "—" or similar as line fillers. Use normal prose punctuation only.',
+  ];
   if (!isIntroduction) {
     antiPatterns.push(
       "NO self-introductions. The contestants have all met — any line like \"I'm [Name], I'm [age], from [place]\" is a failure. Introductions only happen in Scene 1.",

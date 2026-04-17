@@ -25,6 +25,7 @@ import type { BuildArgs } from "@villa-ai/shared";
 import { buildSceneContext } from "@/lib/sceneEngine";
 import { generateScene as generateSceneFromLlm } from "@/lib/llm";
 import {
+  isBatchable,
   planPrefetch,
   prefetchScenes,
   type QueuedScene,
@@ -116,6 +117,7 @@ interface VillaState {
 
   startNewEpisode: () => void;
   generateScene: (type?: SceneType) => Promise<void>;
+  triggerPrefetch: () => void;
   advanceLine: () => void;
   resetLineIndex: () => void;
   toggleCast: () => void;
@@ -938,6 +940,53 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
+  // Fire-and-forget prefetch trigger. Callable from post-commit (in
+  // generateScene) OR from playback-start (useScenePlayback). Idempotent
+  // by design — the prefetch runner has its own single-flight guard, and
+  // planPrefetch returns null when the queue is already deep enough.
+  triggerPrefetch: () => {
+    const state = get();
+    if (state.episode.winnerCouple) return;
+    const activeCast = state.cast.filter(
+      (a) => !state.episode.eliminatedIds.includes(a.id),
+    );
+    const policy = planPrefetch(
+      state.sceneQueue.length,
+      state.episode.scenes.length,
+      activeCast.length,
+      state.ui.isPaused,
+    );
+    if (!policy) return;
+
+    const snapshotEpisodeId = state.episode.id;
+    prefetchScenes({
+      activeCast,
+      scenes: state.episode.scenes,
+      relationships: state.episode.relationships,
+      emotions: state.episode.emotions,
+      couples: state.episode.couples,
+      seasonTheme: state.episode.seasonTheme,
+      bombshellsIntroduced: state.episode.bombshellsIntroduced,
+      bombshellPool: state.episode.bombshellPool,
+      lastBombshellScene: state.episode.lastBombshellScene,
+      bombshellDatingUntilScene: state.episode.bombshellDatingUntilScene,
+      casaAmorState: state.episode.casaAmorState,
+      avgDramaScore: averageDramaScore(state.episode.dramaScores),
+      gapToFill: policy.gapToFill,
+    })
+      .then((scenes) => {
+        if (scenes.length === 0) return;
+        // Episode-id fence: if the user started a new episode while this
+        // batch was in flight, don't leak results into the new episode.
+        if (get().episode.id !== snapshotEpisodeId) return;
+        set((s) => ({ sceneQueue: [...s.sceneQueue, ...scenes] }));
+      })
+      .catch((err) => {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn("[scene-prefetch] run failed:", msg);
+      });
+  },
+
   generateScene: async (type) => {
     const initial = get();
     if (initial.isGenerating) return;
@@ -1486,38 +1535,39 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;
       const queue = initial.sceneQueue;
-      // Only consume a queued scene if it was generated for THIS sceneType.
-      // planNextScene is non-deterministic (random weighting, state-sensitive
-      // branching), so the prefetched type can diverge from the current-run
-      // decision — using a mismatched queued scene would commit a pool/firepit
-      // response under, say, a bombshell slot and corrupt the episode.
-      const queueHead = queue[0];
-      if (queueHead && queueHead.sceneType === sceneType) {
-        llm = queueHead.scene;
+      // Find the first queued scene whose tagged sceneType matches — the
+      // prefetcher batches speculatively past non-batchable slots, so the
+      // head might be a firepit tagged for a future scene while we're
+      // currently doing a minigame. Skip-and-keep instead of discard.
+      const matchIdx = queue.findIndex((q) => q.sceneType === sceneType);
+      if (matchIdx >= 0) {
+        llm = queue[matchIdx]!.scene;
         sceneWasQueued = true;
         // Functional update: the prefetch runner may have appended more
         // scenes between when we snapshot `queue` and when we write back,
-        // and a naive slice(1) of the old snapshot would silently drop them.
+        // and a naive .filter of the old snapshot would silently drop them.
         set((s) => ({
-          sceneQueue: s.sceneQueue.slice(1),
+          sceneQueue: s.sceneQueue.filter(
+            (_, i, arr) => arr[i] !== queue[matchIdx],
+          ),
           generationProgress: {
             percent: 40,
             label: "processing queued scene...",
           },
         }));
       } else {
-        // Queue head was for a different type — drop it so we don't keep
-        // re-checking the same stale entry, then generate live.
-        if (queueHead) {
-          console.warn(
-            `[scene-queue] head was for ${queueHead.sceneType}, need ${sceneType} — discarding`,
-          );
-          set((s) => ({ sceneQueue: s.sceneQueue.slice(1) }));
-        }
+        // No match — either the queue is empty, or it's holding scenes for
+        // future non-current types. Live-gen this one. Label differentiates
+        // "genuine live" (non-batchable type, always lives in main path)
+        // from "queue miss" (prefetch didn't anticipate this), so it's
+        // easier to diagnose whether prefetch is keeping up.
+        const isExpectedLive = !isBatchable(sceneType);
         set({
           generationProgress: {
             percent: 10,
-            label: "writers room is working...",
+            label: isExpectedLive
+              ? "writers room is working..."
+              : "catching up...",
           },
         });
         llm = await generateSceneFromLlm(
@@ -2239,52 +2289,10 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
 
       syncToServer({ episode: get().episode, cast: get().cast });
 
-      const postState = get();
-      const postActiveCast = postState.cast.filter(
-        (a) => !postState.episode.eliminatedIds.includes(a.id),
-      );
-      const policy = !postState.episode.winnerCouple
-        ? planPrefetch(
-            postState.sceneQueue.length,
-            postState.episode.scenes.length,
-            postActiveCast.length,
-            postState.ui.isPaused,
-          )
-        : null;
-
-      if (policy) {
-        const snapshotEpisodeId = postState.episode.id;
-        prefetchScenes({
-          activeCast: postActiveCast,
-          scenes: postState.episode.scenes,
-          relationships: postState.episode.relationships,
-          emotions: postState.episode.emotions,
-          couples: postState.episode.couples,
-          seasonTheme: postState.episode.seasonTheme,
-          bombshellsIntroduced: postState.episode.bombshellsIntroduced,
-          bombshellPool: postState.episode.bombshellPool,
-          lastBombshellScene: postState.episode.lastBombshellScene,
-          bombshellDatingUntilScene:
-            postState.episode.bombshellDatingUntilScene,
-          casaAmorState: postState.episode.casaAmorState,
-          avgDramaScore: averageDramaScore(postState.episode.dramaScores),
-          depth: policy.depth,
-        })
-          .then((scenes) => {
-            // Only append if we're still on the same episode and the queue
-            // hasn't been filled by a concurrent prefetch or consumption.
-            if (scenes.length === 0) return;
-            if (get().episode.id !== snapshotEpisodeId) return;
-            set((s) => ({ sceneQueue: [...s.sceneQueue, ...scenes] }));
-          })
-          .catch((err) => {
-            // Prefetch is best-effort: failures here don't block the user,
-            // because the main scene path will re-try and surface fatal
-            // errors (auth, quota) when they hit Play.
-            const msg = err instanceof Error ? err.message : String(err);
-            console.warn("[scene-prefetch] run failed:", msg);
-          });
-      }
+      // Post-commit prefetch: scene N just landed, fire gen for N+1..N+5 now
+      // so by the time playback ends the queue has them ready. The playback
+      // hook will also call triggerPrefetch at scene-start as belt-and-braces.
+      get().triggerPrefetch();
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Unknown error";
       const safe = raw

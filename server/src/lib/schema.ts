@@ -88,6 +88,33 @@ function asBeatIndex(v: unknown, plannedBeatCount: number): number | undefined {
   return idx;
 }
 
+// Clean dialogue/action text the LLM produced. Love Island scripts come back
+// with occasional garbage the prompt doesn't ask for:
+//   - U+00A6 broken-bar (¦) — some models emit this as a filler separator
+//   - leading emojiFace characters ("🕉 I'm so glad...") — LLM pattern-matches
+//     on the cast block and prepends each agent's emojiFace to their line
+//   - other non-printable / control characters
+//
+// We strip these here so the bug is fixed once (server-side validation) rather
+// than hunted through every render site. Preserves meaningful punctuation,
+// action markers like "*sighs*", and the rest of the line content.
+function sanitizeDialogueText(raw: string): string {
+  let s = raw;
+  // Strip control chars (0x00-0x1F except tab/newline) and the broken-bar.
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u00a6]/g, "");
+  // Trim a leading emoji / pictograph if it's immediately followed by
+  // whitespace — LLMs add these as imitation of the cast block. Single-pass:
+  // we don't want to strip a meaningful mid-sentence emoji, only line-leaders.
+  //
+  // Regex: start of string, an emoji/pictograph range character, optional
+  // variation selector, then required whitespace.
+  s = s.replace(
+    /^[\u{1f300}-\u{1f9ff}\u{2600}-\u{27bf}\u{1fa70}-\u{1faff}\u{fe0f}]+\s+/u,
+    "",
+  );
+  return s.trim();
+}
+
 function stripTrailingCommas(s: string): string {
   let out = "";
   let inString = false;
@@ -278,13 +305,14 @@ export function parseAndValidate(
     )
     .map((d) => {
       const beatIndex = asBeatIndex(d.beatIndex, plannedBeatCount);
+      const cleanedText = sanitizeDialogueText(d.text as string).slice(0, 400);
       return {
         agentId: d.agentId as string,
-        text: (d.text as string).slice(0, 400),
+        text: cleanedText,
         emotion: asEmotion(d.emotion),
         action:
           typeof d.action === "string"
-            ? (d.action as string).slice(0, 80)
+            ? sanitizeDialogueText(d.action as string).slice(0, 80)
             : undefined,
         targetAgentId:
           typeof d.targetAgentId === "string" && validIds.has(d.targetAgentId)
@@ -295,6 +323,7 @@ export function parseAndValidate(
         quotable: d.quotable === true ? true : undefined,
       };
     })
+    .filter((d) => d.text.length > 0) // sanitization may have nuked a pure-emoji line
     .slice(0, dialogueCap);
 
   if (plannedBeats && plannedBeats.length > 0) {
