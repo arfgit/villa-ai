@@ -81,6 +81,7 @@ export function buildSeasonExport(episode: Episode, _cast: Agent[]): SeasonExpor
     dialogueSummary: scene.dialogue.map((d) => `${d.agentId}: ${d.text}`).join(' | '),
     systemEvents: scene.systemEvents,
     outcome: scene.outcome,
+    sceneContext: scene.sceneContext,
   }))
 
   // Relationship snapshots every 5 scenes
@@ -91,7 +92,7 @@ export function buildSeasonExport(episode: Episode, _cast: Agent[]): SeasonExpor
   }]
 
   return {
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     season: {
       id: episode.id,
@@ -133,7 +134,7 @@ export function buildRLExport(episode: Episode, cast: Agent[]): RLExport {
     })
 
   return {
-    version: 1,
+    version: 2,
     exportedAt: Date.now(),
     seasonId: episode.id,
     agents,

@@ -1,4 +1,6 @@
-const DEFAULT_HOST = 'http://localhost:11434'
+// Same-origin by default — Vite dev proxies /ollama → localhost:11434.
+// Set VITE_OLLAMA_HOST to override (e.g. a remote Ollama host in prod).
+const DEFAULT_HOST = '/ollama'
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 
 interface OllamaEmbedResponse {

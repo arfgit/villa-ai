@@ -1,10 +1,10 @@
-import { getUserId } from './userId'
+import { getSessionId } from './sessionId'
 
 const BASE = ''
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
-  const userId = getUserId()
-  const headers: Record<string, string> = { 'x-user-id': userId }
+  const sessionId = getSessionId()
+  const headers: Record<string, string> = { 'x-session-id': sessionId }
   if (body) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(`${BASE}${path}`, {
@@ -19,20 +19,26 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export async function createSeason(episode: unknown): Promise<{ success: boolean; seasonId: string }> {
-  return request('/api/season', { episode })
+export async function saveSession(episode: unknown, cast: unknown): Promise<{ success: boolean; sessionId: string }> {
+  return request('/api/session', { episode, cast })
 }
 
-export async function fetchSeason(seasonId: string): Promise<unknown> {
-  return request(`/api/season/${seasonId}`)
+export async function loadCurrentSession(): Promise<{ episode: unknown; cast: unknown; sessionId: string } | null> {
+  try {
+    const data = await request<{ episode?: unknown; cast?: unknown; sessionId?: string }>('/api/session/current')
+    if (data?.episode) return data as { episode: unknown; cast: unknown; sessionId: string }
+    return null
+  } catch {
+    return null
+  }
 }
 
-export async function fetchTrainingArchive(): Promise<{ seasons: unknown[] }> {
-  return request('/api/training')
+export async function saveTrainingData(data: unknown): Promise<{ success: boolean; entryId: string }> {
+  return request('/api/training', { data })
 }
 
-export async function saveTrainingData(seasonId: string, data: unknown): Promise<void> {
-  await request('/api/training', { seasonId, data })
+export async function fetchTrainingArchive(limit = 50): Promise<{ entries: unknown[] }> {
+  return request(`/api/training?limit=${limit}`)
 }
 
 export async function exportSeason(episode: unknown, cast: unknown): Promise<unknown> {

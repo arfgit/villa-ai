@@ -1,10 +1,10 @@
-import { getUserId } from './userId'
+import { getSessionId } from './sessionId'
 
 const BASE = ''
 
 async function request<T>(path: string, body?: unknown): Promise<T> {
-  const userId = getUserId()
-  const headers: Record<string, string> = { 'x-user-id': userId }
+  const sessionId = getSessionId()
+  const headers: Record<string, string> = { 'x-session-id': sessionId }
   if (body) headers['Content-Type'] = 'application/json'
 
   const res = await fetch(`${BASE}${path}`, {
@@ -19,26 +19,60 @@ async function request<T>(path: string, body?: unknown): Promise<T> {
   return res.json() as Promise<T>
 }
 
-export async function saveSeason(episode: unknown, cast: unknown): Promise<void> {
-  await request('/api/season', { episode, cast })
+export async function saveSession(episode: unknown, cast: unknown): Promise<{ success: boolean; sessionId: string }> {
+  return request('/api/session', { episode, cast })
 }
 
-export async function loadCurrentSeason(): Promise<{ episode: unknown; cast: unknown; userId: string } | null> {
+export async function loadCurrentSession(): Promise<{ episode: unknown; cast: unknown; sessionId: string } | null> {
   try {
-    const data = await request<{ episode?: unknown; cast?: unknown; userId?: string }>(`/api/season/current`)
-    if (data?.episode) return data as { episode: unknown; cast: unknown; userId: string }
+    const data = await request<{ episode?: unknown; cast?: unknown; sessionId?: string }>('/api/session/current')
+    if (data?.episode) return data as { episode: unknown; cast: unknown; sessionId: string }
     return null
   } catch {
     return null
   }
 }
 
-export async function saveTrainingData(seasonId: string, data: unknown): Promise<void> {
-  await request('/api/training', { seasonId, data })
+export async function loadSessionById(sessionId: string): Promise<{ episode: unknown; cast: unknown; sessionId: string } | null> {
+  try {
+    const data = await request<{ episode?: unknown; cast?: unknown; sessionId?: string }>(`/api/session/${sessionId}`)
+    if (data?.episode) return data as { episode: unknown; cast: unknown; sessionId: string }
+    return null
+  } catch {
+    return null
+  }
 }
 
-export async function fetchTrainingArchive(): Promise<{ seasons: unknown[] }> {
-  return request('/api/training')
+export async function saveTrainingData(data: unknown): Promise<{ success: boolean }> {
+  return request('/api/training', { data })
+}
+
+export async function fetchTrainingArchive(limit = 50): Promise<{ entries: unknown[] }> {
+  return request(`/api/training?limit=${limit}`)
+}
+
+// Per-session wisdom (archive + meta). Replaces the former localStorage
+// villa-ai-wisdom / villa-ai-meta-wisdom keys.
+export async function fetchWisdom(): Promise<{ archive: Record<string, unknown[]>; meta: unknown[] }> {
+  try {
+    return await request('/api/wisdom')
+  } catch {
+    return { archive: {}, meta: [] }
+  }
+}
+
+export async function saveWisdom(archive: Record<string, unknown[]>, meta: unknown[]): Promise<{ success: boolean }> {
+  return request('/api/wisdom', { archive, meta })
+}
+
+// Cross-session RL meta pool — used when this session has no meta-wisdom yet
+// (fresh machine, cache wipe, brand-new user).
+export async function fetchAggregateWisdom(limit = 15): Promise<{ meta: unknown[] }> {
+  try {
+    return await request(`/api/wisdom/aggregate?limit=${limit}`)
+  } catch {
+    return { meta: [] }
+  }
 }
 
 export async function serverHealthCheck(): Promise<{ status: string; firebase: boolean }> {

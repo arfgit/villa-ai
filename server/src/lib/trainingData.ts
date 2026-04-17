@@ -1,22 +1,12 @@
-import type { Episode, Agent, AgentMemory } from '@villa-ai/shared'
+import type { Episode, Agent, AgentMemory, SeasonSummary } from '@villa-ai/shared'
 import { buildSeasonExport, buildRLExport } from './exportData.js'
-import { saveTrainingData as saveToFirestore, getTrainingArchive, saveWisdom, getWisdom } from '../services/firebase.js'
+import { addTrainingEntry, getTrainingEntries, saveWisdom, getWisdom } from '../services/firebase.js'
 
-const MAX_SEASONS = 5
+const MAX_SEASONS = 50
 
 export interface TrainingArchive {
   seasons: SeasonSummary[]
   updatedAt: number
-}
-
-export interface SeasonSummary {
-  seasonNumber: number
-  theme: string
-  winnerNames: [string, string] | null
-  totalScenes: number
-  eliminationCount: number
-  highlights: string[]
-  lessons: string[]
 }
 
 export async function loadWisdomArchive(): Promise<Map<string, AgentMemory[]>> {
@@ -52,24 +42,27 @@ export async function saveMetaWisdom(wisdom: AgentMemory[]): Promise<void> {
   } catch { /* Firestore write failed */ }
 }
 
-export async function autoSaveTrainingData(episode: Episode, cast: Agent[]): Promise<void> {
+export async function autoSaveTrainingData(sessionId: string, episode: Episode, cast: Agent[]): Promise<string | null> {
   const summary = buildSeasonSummary(episode, cast)
 
   try {
     const seasonExport = buildSeasonExport(episode, cast)
     const rlExport = buildRLExport(episode, cast)
-    await saveToFirestore(episode.id, {
+    const entryId = await addTrainingEntry({
+      sessionId,
+      seasonNumber: episode.number,
       summary,
       seasonExport,
       rlExport,
       exportedAt: Date.now(),
     })
-  } catch { /* Firestore write failed */ }
+    return entryId
+  } catch { return null }
 }
 
 export async function loadTrainingArchive(): Promise<TrainingArchive> {
   try {
-    const docs = await getTrainingArchive(MAX_SEASONS)
+    const docs = await getTrainingEntries(MAX_SEASONS)
     const seasons = docs
       .map((d) => (d as { summary?: SeasonSummary }).summary)
       .filter((s): s is SeasonSummary => !!s)

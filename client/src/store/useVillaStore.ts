@@ -237,6 +237,8 @@ function createEpisode(): Episode {
     dramaScores: {},
     lastBombshellScene: null,
     bombshellDatingUntilScene: null,
+    casaAmorState: null,
+    viewerSentiment: {},
     createdAt: Date.now(),
     updatedAt: Date.now(),
   }
@@ -401,9 +403,10 @@ function seedRelationshipsForNewAgent(
     rels.push({
       fromId: newAgentId,
       toId: otherId,
-      trust: Math.floor(Math.random() * 5),         // 0-4
-      attraction: 5 + Math.floor(Math.random() * 11), // 5-15 (first impression boost)
+      trust: Math.floor(Math.random() * 5),
+      attraction: 5 + Math.floor(Math.random() * 11),
       jealousy: 0,
+      compatibility: 30 + Math.floor(Math.random() * 20),
     })
     rels.push({
       fromId: otherId,
@@ -411,6 +414,7 @@ function seedRelationshipsForNewAgent(
       trust: Math.floor(Math.random() * 5),
       attraction: 5 + Math.floor(Math.random() * 11),
       jealousy: 0,
+      compatibility: 30 + Math.floor(Math.random() * 20),
     })
   }
   return rels
@@ -975,7 +979,7 @@ export const useVillaStore = create<VillaState>()(
       ]
       // Key ensemble scenes: every cast member should react
       const ensembleScenes = ['minigame', 'challenge', 'recouple', 'bombshell']
-      const requiredSpeakers = ensembleScenes.includes(sceneType)
+      const requiredSpeakers = isIntroduction || ensembleScenes.includes(sceneType)
         ? activeCast.map((a) => a.id)
         : undefined
 

@@ -49,10 +49,16 @@ async function ensureInit(): Promise<void> {
   }
 }
 
+/* ── local-file helpers ── */
+
+function sanitizeDocId(docId: string): string {
+  return docId.replace(/[^a-zA-Z0-9_-]/g, '_')
+}
+
 function localPath(collection: string, docId: string): string {
   const dir = join(LOCAL_DATA_DIR, collection)
   if (!existsSync(dir)) mkdirSync(dir, { recursive: true })
-  return join(dir, `${docId}.json`)
+  return join(dir, `${sanitizeDocId(docId)}.json`)
 }
 
 function localRead(collection: string, docId: string): unknown {
@@ -74,53 +80,98 @@ function localQuery(collection: string, max: number): unknown[] {
     .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf-8')))
 }
 
+function localQueryAll(collection: string): unknown[] {
+  const dir = join(LOCAL_DATA_DIR, collection)
+  if (!existsSync(dir)) return []
+  return readdirSync(dir)
+    .filter((f) => f.endsWith('.json'))
+    .map((f) => JSON.parse(readFileSync(join(dir, f), 'utf-8')))
+}
+
 export function isFirebaseAvailable(): boolean {
   return useFirestore
 }
 
-export async function saveSeason(seasonId: string, data: unknown): Promise<void> {
+/* ── Villa Sessions ── */
+
+export async function saveSession(sessionId: string, data: unknown): Promise<void> {
   await ensureInit()
   if (useFirestore && db) {
     const { FieldValue } = await import('firebase-admin/firestore')
-    await db.collection('seasons').doc(seasonId).set({
+    await db.collection('villaSessions').doc(sessionId).set({
       ...(data as Record<string, unknown>),
       updatedAt: FieldValue.serverTimestamp(),
     })
   } else {
-    localWrite('seasons', seasonId, { ...(data as Record<string, unknown>), updatedAt: Date.now() })
+    localWrite('villaSessions', sessionId, { ...(data as Record<string, unknown>), updatedAt: Date.now() })
   }
 }
 
-export async function getSeason(seasonId: string): Promise<unknown> {
+export async function getSession(sessionId: string): Promise<unknown> {
   await ensureInit()
   if (useFirestore && db) {
-    const snap = await db.collection('seasons').doc(seasonId).get()
+    const snap = await db.collection('villaSessions').doc(sessionId).get()
     return snap.exists ? snap.data() : null
   }
-  return localRead('seasons', seasonId)
+  return localRead('villaSessions', sessionId)
 }
 
-export async function saveTrainingData(seasonId: string, data: unknown): Promise<void> {
+/* ── Training Data (shared global collection) ── */
+
+export async function saveTrainingEntry(sessionId: string, data: unknown): Promise<void> {
   await ensureInit()
   if (useFirestore && db) {
     const { FieldValue } = await import('firebase-admin/firestore')
-    await db.collection('trainingData').doc(seasonId).set({
+    const docRef = db.collection('trainingData').doc(sessionId)
+    const existing = await docRef.get()
+    const payload = {
       ...(data as Record<string, unknown>),
       updatedAt: FieldValue.serverTimestamp(),
-    })
+      ...(!existing.exists && { createdAt: FieldValue.serverTimestamp() }),
+    }
+    await docRef.set(payload, { merge: true })
   } else {
-    localWrite('trainingData', seasonId, { ...(data as Record<string, unknown>), exportedAt: Date.now() })
+    localWrite('trainingData', sessionId, { ...(data as Record<string, unknown>), updatedAt: Date.now() })
   }
 }
 
-export async function getTrainingArchive(maxSeasons = 5): Promise<unknown[]> {
+export async function addTrainingEntry(data: unknown): Promise<string> {
   await ensureInit()
   if (useFirestore && db) {
-    const snap = await db.collection('trainingData').orderBy('exportedAt', 'desc').limit(maxSeasons).get()
-    return snap.docs.map((d) => d.data())
+    const { FieldValue } = await import('firebase-admin/firestore')
+    const ref = await db.collection('trainingData').add({
+      ...(data as Record<string, unknown>),
+      createdAt: FieldValue.serverTimestamp(),
+    })
+    return ref.id
   }
-  return localQuery('trainingData', maxSeasons)
+  const entryId = crypto.randomUUID()
+  localWrite('trainingData', entryId, { ...(data as Record<string, unknown>), id: entryId, createdAt: Date.now() })
+  return entryId
 }
+
+export async function getTrainingEntries(limit = 50): Promise<unknown[]> {
+  await ensureInit()
+  if (useFirestore && db) {
+    const snap = await db.collection('trainingData').orderBy('createdAt', 'desc').limit(limit).get()
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  }
+  return localQuery('trainingData', limit)
+}
+
+export async function getTrainingForSession(sessionId: string): Promise<unknown[]> {
+  await ensureInit()
+  if (useFirestore && db) {
+    const snap = await db.collection('trainingData')
+      .where('sessionId', '==', sessionId)
+      .get()
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+  }
+  return localQueryAll('trainingData')
+    .filter((d) => (d as Record<string, unknown>).sessionId === sessionId)
+}
+
+/* ── Wisdom Archives (unchanged) ── */
 
 export async function saveWisdom(key: string, data: unknown): Promise<void> {
   await ensureInit()

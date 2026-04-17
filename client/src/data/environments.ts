@@ -109,6 +109,72 @@ export const ENVIRONMENTS: Record<SceneType, string> = {
    └──────┘      └──────┘
      ═════  bond boost  ═════
         winner gets +reward`,
+
+  public_vote: ` ╔══════════════════════════╗
+ ║  📱  PUBLIC VOTE  📱      ║
+ ╚══════════════════════════╝
+     ┌────────────────────┐
+     │  THE PUBLIC HAS    │
+     │  BEEN VOTING...    │
+     │  📊 ▓▓▓▓░░░░░ 📊  │
+     └────────────────────┘
+     someone is going home`,
+
+  islander_vote: ` ╔══════════════════════════╗
+ ║  🗳  ISLANDER VOTE  🗳    ║
+ ╚══════════════════════════╝
+      🔥  the firepit  🔥
+     ┌────────────────────┐
+     │  ◯ ◯ ◯   ◯ ◯ ◯  │
+     │    the islanders   │
+     │     must choose    │
+     └────────────────────┘`,
+
+  producer_twist: ` ╔══════════════════════════╗
+ ║  📺  PRODUCER TWIST  📺   ║
+ ╚══════════════════════════╝
+     ┌────────────────────┐
+     │  🎬  BREAKING NEWS │
+     │  the producers     │
+     │  have decided...   │
+     └────────────────────┘`,
+
+  casa_amor_arrival: ` ╔══════════════════════════╗
+ ║  🏠  CASA AMOR  🏠        ║
+ ╚══════════════════════════╝
+   🌴  ┌─────┐  ┌─────┐  🌴
+       │VILLA│  │CASA │
+       │  1  │  │AMOR │
+       └─────┘  └─────┘
+     the villa is SPLITTING`,
+
+  casa_amor_date: ` ╔══════════════════════════╗
+ ║  💋  CASA DATE  💋        ║
+ ╚══════════════════════════╝
+   🌴          🌊
+     ┌────────────────────┐
+     │  temptation awaits │
+     │    in both villas  │
+     └────────────────────┘`,
+
+  casa_amor_challenge: ` ╔══════════════════════════╗
+ ║  🔥  CASA CHALLENGE  🔥   ║
+ ╚══════════════════════════╝
+   ┌──────┐    ┌──────┐
+   │  OG  │ vs │ CASA │
+   │ crew │    │ crew │
+   └──────┘    └──────┘
+      loyalty is tested`,
+
+  casa_amor_stickswitch: ` ╔══════════════════════════╗
+ ║  💔  STICK or SWITCH  💔  ║
+ ╚══════════════════════════╝
+     ┌────────────────────┐
+     │  ❤️  stick  ❤️     │
+     │  or                │
+     │  💔  switch  💔    │
+     └────────────────────┘
+   the most dramatic night`,
 }
 
 export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> = {
@@ -122,6 +188,13 @@ export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> =
   interview: { title: 'Confessional', emoji: '🎙️' },
   bombshell: { title: 'Bombshell Arrival', emoji: '💣' },
   minigame: { title: 'Mini Game', emoji: '🎯' },
+  public_vote: { title: 'Public Vote', emoji: '📱' },
+  islander_vote: { title: 'Islander Vote', emoji: '🗳️' },
+  producer_twist: { title: 'Producer Twist', emoji: '📺' },
+  casa_amor_arrival: { title: 'Casa Amor', emoji: '🏠' },
+  casa_amor_date: { title: 'Casa Date', emoji: '💋' },
+  casa_amor_challenge: { title: 'Casa Challenge', emoji: '🔥' },
+  casa_amor_stickswitch: { title: 'Stick or Switch', emoji: '💔' },
 }
 
 // The first recouple of the season isn't actually a *re*-coupling — nobody

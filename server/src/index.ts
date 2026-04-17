@@ -9,20 +9,26 @@ import express from 'express'
 import cors from 'cors'
 import { isFirebaseAvailable } from './services/firebase.js'
 import { sceneRouter } from './routes/scene.js'
-import { seasonRouter } from './routes/season.js'
+import { sessionRouter } from './routes/session.js'
 import { trainingRouter } from './routes/training.js'
 import { exportRouter } from './routes/export.js'
+import { llmRouter } from './routes/llm.js'
+import { wisdomRouter } from './routes/wisdom.js'
 
 const app = express()
 const PORT = parseInt(process.env.PORT ?? '3001', 10)
 
-app.use(cors())
+app.use(cors({
+  origin: process.env.CORS_ORIGIN ?? true,
+}))
 app.use(express.json({ limit: '10mb' }))
 
 app.use('/api/scene', sceneRouter)
-app.use('/api/season', seasonRouter)
+app.use('/api/session', sessionRouter)
 app.use('/api/training', trainingRouter)
 app.use('/api/export', exportRouter)
+app.use('/api/llm', llmRouter)
+app.use('/api/wisdom', wisdomRouter)
 
 app.get('/api/health', async (_req, res) => {
   res.json({

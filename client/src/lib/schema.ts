@@ -1,7 +1,7 @@
 import type { LlmSceneResponse, LlmBatchSceneResponse, Emotion, SystemEventType } from '@/types'
 
 const VALID_EMOTIONS: Emotion[] = ['happy', 'flirty', 'jealous', 'angry', 'sad', 'smug', 'anxious', 'bored', 'shocked', 'neutral']
-const VALID_EVENT_TYPES: SystemEventType[] = ['trust_change', 'attraction_change', 'jealousy_spike', 'couple_formed', 'couple_broken', 'minigame_win', 'challenge_win']
+const VALID_EVENT_TYPES: SystemEventType[] = ['trust_change', 'attraction_change', 'jealousy_spike', 'compatibility_change', 'couple_formed', 'couple_broken', 'minigame_win', 'challenge_win']
 
 function clamp(n: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, n))
@@ -164,8 +164,10 @@ function repairAndParse(text: string): Record<string, unknown> {
 export function parseAndValidate(
   raw: string,
   validAgentIds: string[],
-  requiredSpeakerIds?: string[]
+  requiredSpeakerIds?: string[],
+  maxDialogueLines?: number
 ): LlmSceneResponse {
+  const dialogueCap = maxDialogueLines ?? Math.min(30, Math.max(12, (requiredSpeakerIds?.length ?? 0) + 4))
   const data = repairAndParse(raw)
 
   const dialogue = Array.isArray(data.dialogue) ? data.dialogue : []
@@ -186,7 +188,7 @@ export function parseAndValidate(
       action: typeof d.action === 'string' ? (d.action as string).slice(0, 80) : undefined,
       targetAgentId: typeof d.targetAgentId === 'string' && validIds.has(d.targetAgentId) ? d.targetAgentId as string : undefined,
     }))
-    .slice(0, 12)
+    .slice(0, dialogueCap)
 
   // Prioritize couple_formed / couple_broken events over numeric deltas —
   // an intro with 8 contestants needs 4 couple_formed events, and a truncation
@@ -197,7 +199,7 @@ export function parseAndValidate(
       type: asEventType(e.type),
       fromId: typeof e.fromId === 'string' && validIds.has(e.fromId) ? e.fromId as string : undefined,
       toId: typeof e.toId === 'string' && validIds.has(e.toId) ? e.toId as string : undefined,
-      delta: typeof e.delta === 'number' ? clamp(e.delta, -15, 15) : undefined,
+      delta: typeof e.delta === 'number' ? clamp(e.delta, -10, 10) : undefined,
       label: (e.label as string).slice(0, 80),
     }))
   const coupleEvents = allEvents.filter((e) => e.type === 'couple_formed' || e.type === 'couple_broken')

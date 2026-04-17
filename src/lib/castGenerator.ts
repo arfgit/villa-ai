@@ -86,6 +86,55 @@ const COLOR_CLASSES = [
   'text-lime-400', 'text-red-400', 'text-purple-400', 'text-blue-400',
 ]
 
+// Archetype families — opposites attract for drama, same-family = low compatibility
+const ARCHETYPE_FAMILIES: Record<string, string> = {
+  'the romantic': 'emotional',
+  'the empath': 'emotional',
+  'the loyalist': 'emotional',
+  'the strategist': 'strategic',
+  'the competitor': 'strategic',
+  'the dark horse': 'strategic',
+  'the wildcard': 'chaotic',
+  'the chaos agent': 'chaotic',
+  'the villain': 'chaotic',
+  'the charmer': 'social',
+  'the social butterfly': 'social',
+  'the comedian': 'social',
+  'the brooder': 'reserved',
+  'the underdog': 'reserved',
+  'the peacemaker': 'reserved',
+  'the bombshell': 'social',
+}
+
+// Cross-family compatibility: how well do these family combos match?
+const FAMILY_COMPAT: Record<string, Record<string, number>> = {
+  emotional:  { emotional: 25, strategic: 65, chaotic: 45, social: 55, reserved: 70 },
+  strategic:  { emotional: 65, strategic: 20, chaotic: 55, social: 40, reserved: 50 },
+  chaotic:    { emotional: 45, strategic: 55, chaotic: 15, social: 60, reserved: 70 },
+  social:     { emotional: 55, strategic: 40, chaotic: 60, social: 30, reserved: 65 },
+  reserved:   { emotional: 70, strategic: 50, chaotic: 70, social: 65, reserved: 20 },
+}
+
+export function baseCompatibility(archetypeA: string, archetypeB: string): number {
+  const famA = ARCHETYPE_FAMILIES[archetypeA] ?? 'social'
+  const famB = ARCHETYPE_FAMILIES[archetypeB] ?? 'social'
+  return FAMILY_COMPAT[famA]?.[famB] ?? 40
+}
+
+// Voice examples for prompt differentiation
+export const VOICE_EXAMPLES: Record<string, string> = {
+  'loud and unapologetic': "Absolutely NOT, are you having a LAUGH? That's bare disrespectful, innit!",
+  'soft-spoken but deadly honest': "I just think... you should know... she said she doesn't see a future with you.",
+  'rapid-fire energy': "OhmyGOD wait wait wait — did you see his FACE when she walked in? I'm DEAD!",
+  'smooth and deliberate': "I've been watching you all evening. And I think... you already know what I'm going to say.",
+  'self-deprecating humor': "Right, so I tried to be smooth and I tripped over a sunbed. Classic me, honestly.",
+  'warm and encouraging': "Babe, honestly? You deserve the world. And if he can't see that, that's HIS loss, yeah?",
+  'dramatic AF': "*gasps* Wait. WAIT. Did she just say that? To HIS face? Oh my days, I need to sit down.",
+  'cool and collected': "Interesting.",
+  'excitable storyteller': "So THEN — and this is the mad part right — she turns around and goes 'I never liked you anyway!' and I'm stood there like—",
+  'blunt Northern/Southern charm': "Babe, I'm gonna be straight with you. I fancy someone else. No point dragging it out, is there?",
+}
+
 function pick<T>(arr: T[]): T {
   return arr[Math.floor(Math.random() * arr.length)]!
 }

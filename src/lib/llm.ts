@@ -1,4 +1,4 @@
-import type { LlmSceneResponse, LlmBatchSceneResponse } from '@/types'
+import type { LlmSceneResponse, LlmBatchSceneResponse, PlannedBeat } from '@/types'
 import { generateSceneFromGemini, generateBatchFromGemini } from './gemini'
 import { generateSceneFromOllama, generateBatchFromOllama } from './ollama'
 
@@ -13,11 +13,12 @@ export function getProvider(): LlmProvider {
 export async function generateScene(
   prompt: string,
   validAgentIds: string[],
-  requiredSpeakerIds?: string[]
+  requiredSpeakerIds?: string[],
+  plannedBeats?: PlannedBeat[]
 ): Promise<LlmSceneResponse> {
   const provider = getProvider()
-  if (provider === 'ollama') return generateSceneFromOllama(prompt, validAgentIds, requiredSpeakerIds)
-  return generateSceneFromGemini(prompt, validAgentIds, requiredSpeakerIds)
+  if (provider === 'ollama') return generateSceneFromOllama(prompt, validAgentIds, requiredSpeakerIds, plannedBeats)
+  return generateSceneFromGemini(prompt, validAgentIds, requiredSpeakerIds, plannedBeats)
 }
 
 export async function generateBatchScene(

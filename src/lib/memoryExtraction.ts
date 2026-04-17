@@ -1,7 +1,8 @@
 import type { Agent, DialogueLine, AgentMemory, RewardEvent } from '@/types'
 import { formatRewardTrajectory, sumRewards } from './rewards'
 
-const DEFAULT_HOST = 'http://localhost:11434'
+// Same-origin by default — Vite dev proxies /ollama → localhost:11434.
+const DEFAULT_HOST = '/ollama'
 const DEFAULT_MODEL = 'qwen2.5:14b'
 
 function getHost(): string {

@@ -9,6 +9,13 @@ export type SceneType =
   | 'interview'
   | 'bombshell'
   | 'minigame'
+  | 'public_vote'
+  | 'islander_vote'
+  | 'producer_twist'
+  | 'casa_amor_arrival'
+  | 'casa_amor_date'
+  | 'casa_amor_challenge'
+  | 'casa_amor_stickswitch'
 
 export type Emotion =
   | 'happy' | 'flirty' | 'jealous' | 'angry'
@@ -17,7 +24,7 @@ export type Emotion =
 
 export type Pose = 'idle' | 'waving' | 'arms_crossed' | 'pointing' | 'hugging' | 'crying'
 
-export type RelationshipMetric = 'trust' | 'attraction' | 'jealousy'
+export type RelationshipMetric = 'trust' | 'attraction' | 'jealousy' | 'compatibility'
 
 export interface Agent {
   id: string
@@ -53,6 +60,7 @@ export interface Relationship {
   trust: number
   attraction: number
   jealousy: number
+  compatibility: number
 }
 
 export interface DialogueLine {
@@ -68,6 +76,7 @@ export type SystemEventType =
   | 'trust_change'
   | 'attraction_change'
   | 'jealousy_spike'
+  | 'compatibility_change'
   | 'couple_formed'
   | 'couple_broken'
   | 'minigame_win'
@@ -160,8 +169,40 @@ export interface Episode {
   dramaScores: Record<string, number>
   lastBombshellScene: number | null
   bombshellDatingUntilScene: number | null
+  casaAmorState: CasaAmorState | null
+  viewerSentiment: Record<string, number>
   createdAt: number
   updatedAt: number
+}
+
+export type CasaAmorPhase = 'active' | 'stickswitch' | 'post'
+
+export interface CasaAmorState {
+  phase: CasaAmorPhase
+  originalCouples: Couple[]
+  casaAmorCast: Agent[]
+  villaGroupIds: string[]
+  casaAmorGroupIds: string[]
+  scenesCompleted: number
+  stickOrSwitchResults: StickOrSwitchChoice[]
+}
+
+export interface StickOrSwitchChoice {
+  ogIslanderId: string
+  choice: 'stick' | 'switch'
+  newPartnerId?: string
+}
+
+export type CoupleArchetype = 'mom_and_dad' | 'friend_couple' | 'friend_couple_incognito' | 'star_crossed' | 'singleton'
+
+export type ChallengeCategory = 'learn_facts' | 'explore_attraction'
+
+export interface ViewerMessage {
+  id: string
+  username: string
+  text: string
+  timestamp: number
+  sentiment: 'positive' | 'negative' | 'neutral' | 'chaotic'
 }
 
 export interface LlmDialogueLine {

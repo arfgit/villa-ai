@@ -12,9 +12,10 @@ export function buildSeedRelationships(cast: Agent[]): Relationship[] {
       rels.push({
         fromId: a.id,
         toId: b.id,
-        trust: Math.floor(Math.random() * 6),       // 0-5 (near zero, slight noise)
-        attraction: Math.floor(Math.random() * 10), // 0-9 (blank-slate first impression)
-        jealousy: 0,                                // no prior jealousy — they haven't met
+        trust: Math.floor(Math.random() * 6),
+        attraction: Math.floor(Math.random() * 10),
+        jealousy: 0,
+        compatibility: 30 + Math.floor(Math.random() * 20),
       })
     }
   }

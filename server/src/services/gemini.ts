@@ -1,13 +1,13 @@
 import { GoogleGenerativeAI } from '@google/generative-ai'
 import { parseAndValidate, parseAndValidateBatch } from '../lib/schema.js'
-import type { LlmSceneResponse, LlmBatchSceneResponse } from '@villa-ai/shared'
+import type { LlmSceneResponse, LlmBatchSceneResponse, PlannedBeat } from '@villa-ai/shared'
 
 let genAI: GoogleGenerativeAI | null = null
 
 function getGenAI(): GoogleGenerativeAI {
   if (!genAI) {
     const key = process.env.GEMINI_API_KEY
-    if (!key) throw new Error('VITE_GEMINI_API_KEY not set in .env')
+    if (!key) throw new Error('GEMINI_API_KEY not set in .env')
     genAI = new GoogleGenerativeAI(key)
   }
   return genAI
@@ -37,7 +37,7 @@ function describeRateLimit(rawMessage: string): string {
   return 'Rate limit reached. Wait a moment and try again.'
 }
 
-export async function generateSceneFromGemini(prompt: string, validAgentIds: string[], requiredSpeakerIds?: string[]): Promise<LlmSceneResponse> {
+export async function generateSceneFromGemini(prompt: string, validAgentIds: string[], requiredSpeakerIds?: string[], plannedBeats?: PlannedBeat[]): Promise<LlmSceneResponse> {
   const ai = getGenAI()
 
   let lastError: unknown = null
@@ -56,7 +56,7 @@ export async function generateSceneFromGemini(prompt: string, validAgentIds: str
 
         const result = await model.generateContent(prompt)
         const text = result.response.text()
-        return parseAndValidate(text, validAgentIds, requiredSpeakerIds)
+        return parseAndValidate(text, validAgentIds, requiredSpeakerIds, undefined, plannedBeats)
       } catch (err) {
         lastError = err
         const msg = err instanceof Error ? err.message : ''

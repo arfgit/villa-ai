@@ -243,7 +243,17 @@ const TRACKS: Record<SceneType | 'menu', Track> = {
     drumPattern: ['kick', 'hat', 'snare', 'hat', 'kick', 'kick', 'snare', 'hat', 'kick', 'hat', 'snare', 'hat', 'kick', 'kick', 'snare', 'kick'],
     bpm: 130,
   },
-}
+} as Record<SceneType | 'menu', Track>
+
+// Alias new scene types to existing tracks
+TRACKS.public_vote = TRACKS.recouple
+TRACKS.islander_vote = TRACKS.recouple
+TRACKS.producer_twist = TRACKS.bombshell
+TRACKS.casa_amor_arrival = TRACKS.bombshell
+TRACKS.casa_amor_date = TRACKS.date
+TRACKS.casa_amor_challenge = TRACKS.challenge
+TRACKS.casa_amor_stickswitch = TRACKS.recouple
+TRACKS.grand_finale = TRACKS.recouple
 
 function ensureContext(): AudioContext {
   if (!ctx) {

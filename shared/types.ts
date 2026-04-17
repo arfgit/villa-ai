@@ -9,6 +9,14 @@ export type SceneType =
   | 'interview'
   | 'bombshell'
   | 'minigame'
+  | 'public_vote'
+  | 'islander_vote'
+  | 'producer_twist'
+  | 'casa_amor_arrival'
+  | 'casa_amor_date'
+  | 'casa_amor_challenge'
+  | 'casa_amor_stickswitch'
+  | 'grand_finale'
 
 export type Emotion =
   | 'happy' | 'flirty' | 'jealous' | 'angry'
@@ -17,7 +25,7 @@ export type Emotion =
 
 export type Pose = 'idle' | 'waving' | 'arms_crossed' | 'pointing' | 'hugging' | 'crying'
 
-export type RelationshipMetric = 'trust' | 'attraction' | 'jealousy'
+export type RelationshipMetric = 'trust' | 'attraction' | 'jealousy' | 'compatibility'
 
 export interface Agent {
   id: string
@@ -53,6 +61,7 @@ export interface Relationship {
   trust: number
   attraction: number
   jealousy: number
+  compatibility: number
 }
 
 export interface DialogueLine {
@@ -62,12 +71,28 @@ export interface DialogueLine {
   emotion: Emotion
   action?: string
   targetAgentId?: string
+  intent?: TurnIntent
+  beatIndex?: number
+}
+
+export type TurnIntent =
+  | 'flirt' | 'deflect' | 'reassure' | 'challenge' | 'test' | 'manipulate'
+  | 'escalate' | 'soften' | 'confess' | 'accuse' | 'reveal' | 'deny'
+  | 'joke' | 'retreat' | 'declare'
+
+export interface PlannedBeat {
+  speakerId: string
+  intent: TurnIntent
+  emotionalTone: string
+  target?: string
+  loud?: boolean
 }
 
 export type SystemEventType =
   | 'trust_change'
   | 'attraction_change'
   | 'jealousy_spike'
+  | 'compatibility_change'
   | 'couple_formed'
   | 'couple_broken'
   | 'minigame_win'
@@ -91,6 +116,48 @@ export interface Scene {
   systemEvents: SystemEvent[]
   outcome: string
   createdAt: number
+  challengeCategory?: ChallengeCategory
+  sceneContext?: SceneContext
+}
+
+export type DialoguePattern =
+  | 'push_pull'
+  | 'question_deflection'
+  | 'soft_accusation'
+  | 'testing'
+  | 'confession_cascade'
+  | 'triangulation'
+  | 'freeform'
+
+export interface Stakes {
+  whatCanBeLost: string
+  whatCanBeGained: string
+}
+
+export interface Subtext {
+  surface: string
+  actual: string
+}
+
+export interface PerAgentSceneRole {
+  agentId: string
+  goal: string
+  hiddenAgenda?: string
+  stakes: Stakes
+  subtext: Subtext
+  powerPosition: 'dominant' | 'equal' | 'submissive' | 'outsider'
+  openingIntent: TurnIntent
+}
+
+export interface SceneContext {
+  sceneType: SceneType
+  tension: number
+  powerDynamic: string
+  recentEvent: string
+  pattern: DialoguePattern
+  plannedBeats: PlannedBeat[]
+  roles: PerAgentSceneRole[]
+  callbackHooks: string[]
 }
 
 export interface Couple {
@@ -160,8 +227,44 @@ export interface Episode {
   dramaScores: Record<string, number>
   lastBombshellScene: number | null
   bombshellDatingUntilScene: number | null
+  casaAmorState: CasaAmorState | null
+  viewerSentiment: Record<string, number>
   createdAt: number
   updatedAt: number
+}
+
+/* ── Casa Amor ── */
+
+export type CasaAmorPhase = 'active' | 'stickswitch' | 'post'
+
+export interface CasaAmorState {
+  phase: CasaAmorPhase
+  originalCouples: Couple[]
+  casaAmorCast: Agent[]
+  villaGroupIds: string[]
+  casaAmorGroupIds: string[]
+  scenesCompleted: number
+  stickOrSwitchResults: StickOrSwitchChoice[]
+}
+
+export interface StickOrSwitchChoice {
+  ogIslanderId: string
+  choice: 'stick' | 'switch'
+  newPartnerId?: string
+}
+
+export type CoupleArchetype = 'mom_and_dad' | 'friend_couple' | 'friend_couple_incognito' | 'star_crossed' | 'singleton'
+
+export type ChallengeCategory = 'learn_facts' | 'explore_attraction'
+
+/* ── Viewer Chat ── */
+
+export interface ViewerMessage {
+  id: string
+  username: string
+  text: string
+  timestamp: number
+  sentiment: 'positive' | 'negative' | 'neutral' | 'chaotic'
 }
 
 export interface LlmDialogueLine {
@@ -170,6 +273,8 @@ export interface LlmDialogueLine {
   emotion: Emotion
   action?: string
   targetAgentId?: string
+  intent?: TurnIntent
+  beatIndex?: number
 }
 
 export interface LlmSystemEvent {
@@ -198,7 +303,7 @@ export interface LlmBatchSceneResponse {
 }
 
 export interface SeasonExport {
-  version: 1
+  version: 1 | 2
   exportedAt: number
   season: {
     id: string
@@ -219,6 +324,7 @@ export interface SeasonExport {
     dialogueSummary: string
     systemEvents: SystemEvent[]
     outcome: string
+    sceneContext?: SceneContext
   }>
   relationships: {
     final: Relationship[]
@@ -227,7 +333,7 @@ export interface SeasonExport {
 }
 
 export interface RLExport {
-  version: 1
+  version: 1 | 2
   exportedAt: number
   seasonId: string
   agents: Array<{
@@ -240,4 +346,36 @@ export interface RLExport {
     rewards: RewardEvent[]
     memories: Array<Omit<AgentMemory, 'embedding'>>
   }>
+}
+
+/* ── Villa Session & Training ── */
+
+export interface SeasonSummary {
+  seasonNumber: number
+  theme: string
+  winnerNames: [string, string] | null
+  totalScenes: number
+  eliminationCount: number
+  highlights: string[]
+  lessons: string[]
+}
+
+export interface VillaSession {
+  sessionId: string
+  createdAt: number
+  updatedAt: number
+  cast: Agent[]
+  episode: Episode
+  trainingContributions: string[]
+}
+
+export interface TrainingEntry {
+  id: string
+  sessionId: string
+  seasonNumber: number
+  summary: SeasonSummary
+  seasonExport: SeasonExport
+  rlExport: RLExport
+  exportedAt: number
+  createdAt: number
 }
