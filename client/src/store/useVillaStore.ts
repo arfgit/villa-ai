@@ -23,10 +23,8 @@ import {
 } from "@/data/seedRelationships";
 import { buildScenePrompt } from "@/lib/prompt";
 import { buildSceneContext } from "@/lib/sceneEngine";
-import {
-  generateScene as generateSceneFromLlm,
-  generateBatchScene as generateBatchFromLlm,
-} from "@/lib/llm";
+import { generateScene as generateSceneFromLlm } from "@/lib/llm";
+import { planPrefetch, prefetchScenes } from "@/lib/scenePrefetch";
 import { embed } from "@/lib/embeddings";
 import { retrieveMemories, buildRetrievalQuery } from "@/lib/memory";
 import {
@@ -2222,69 +2220,50 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       syncToServer({ episode: get().episode, cast: get().cast });
 
       const postState = get();
-      const chillTypes = new Set([
-        "firepit",
-        "pool",
-        "kitchen",
-        "bedroom",
-        "date",
-      ]);
       const postActiveCast = postState.cast.filter(
         (a) => !postState.episode.eliminatedIds.includes(a.id),
       );
-      if (
-        postState.sceneQueue.length === 0 &&
-        !postState.episode.winnerCouple &&
-        postActiveCast.length > 4 &&
-        !postState.ui.isPaused
-      ) {
-        const predictedNext = planNextScene({
+      const policy = !postState.episode.winnerCouple
+        ? planPrefetch(
+            postState.sceneQueue.length,
+            postState.episode.scenes.length,
+            postActiveCast.length,
+            postState.ui.isPaused,
+          )
+        : null;
+
+      if (policy) {
+        const snapshotEpisodeId = postState.episode.id;
+        prefetchScenes({
+          activeCast: postActiveCast,
           scenes: postState.episode.scenes,
-          activeCastCount: postActiveCast.length,
-          bombshellsIntroduced: postState.episode.bombshellsIntroduced.length,
-          bombshellPoolSize: postState.episode.bombshellPool.length,
-          coupleCount: postState.episode.couples.length,
+          relationships: postState.episode.relationships,
+          emotions: postState.episode.emotions,
+          couples: postState.episode.couples,
+          seasonTheme: postState.episode.seasonTheme,
+          bombshellsIntroduced: postState.episode.bombshellsIntroduced,
+          bombshellPool: postState.episode.bombshellPool,
           lastBombshellScene: postState.episode.lastBombshellScene,
           bombshellDatingUntilScene:
             postState.episode.bombshellDatingUntilScene,
-          avgDramaScore: averageDramaScore(postState.episode.dramaScores),
           casaAmorState: postState.episode.casaAmorState,
-          recoupleCount: postState.episode.scenes.filter(
-            (s) => s.type === "recouple",
-          ).length,
-        });
-        if (chillTypes.has(predictedNext)) {
-          const batchPrompt = buildScenePrompt({
-            cast: postActiveCast,
-            relationships: postState.episode.relationships,
-            emotions: postState.episode.emotions,
-            couples: postState.episode.couples,
-            recentScenes: postState.episode.scenes.slice(-3),
-            sceneType: predictedNext,
-            seasonTheme: postState.episode.seasonTheme,
-            sceneNumber: postState.episode.scenes.length + 1,
-            isIntroduction: false,
-            isFinale: false,
+          avgDramaScore: averageDramaScore(postState.episode.dramaScores),
+          depth: policy.depth,
+        })
+          .then((scenes) => {
+            // Only append if we're still on the same episode and the queue
+            // hasn't been filled by a concurrent prefetch or consumption.
+            if (scenes.length === 0) return;
+            if (get().episode.id !== snapshotEpisodeId) return;
+            set((s) => ({ sceneQueue: [...s.sceneQueue, ...scenes] }));
+          })
+          .catch((err) => {
+            // Prefetch is best-effort: failures here don't block the user,
+            // because the main scene path will re-try and surface fatal
+            // errors (auth, quota) when they hit Play.
+            const msg = err instanceof Error ? err.message : String(err);
+            console.warn("[scene-prefetch] run failed:", msg);
           });
-          const batchIds = postActiveCast.map((a) => a.id);
-          generateBatchFromLlm(batchPrompt, batchIds)
-            .then((batch) => {
-              if (
-                get().episode.id === postState.episode.id &&
-                get().sceneQueue.length === 0
-              ) {
-                set({ sceneQueue: batch.scenes.slice(0, 2) });
-              }
-            })
-            .catch((err) => {
-              // Prefetch is best-effort: we log so developers can see why the
-              // queue stayed empty, but we don't surface to the user — the
-              // main scene path will re-try on demand and surface any fatal
-              // errors (auth, quota) there.
-              const msg = err instanceof Error ? err.message : String(err);
-              console.warn("[scene-prefetch] batch failed:", msg);
-            });
-        }
       }
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Unknown error";
