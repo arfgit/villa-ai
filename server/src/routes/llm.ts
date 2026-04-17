@@ -29,6 +29,17 @@ function sanitizeErrorMessage(msg: string): string {
     lower.includes("prepayment") ||
     msg.includes("429");
   if (isRateLimit) return msg;
+  // Ollama connection errors are actionable dev-setup issues, not internal
+  // leaks — pass them through so the user knows to start ollama instead of
+  // staring at "see server logs for details".
+  const isOllamaConnection =
+    lower.includes("could not reach ollama") ||
+    lower.includes("ollama model") ||
+    lower.includes("connect econnrefused") ||
+    lower.includes("fetch failed");
+  if (isOllamaConnection) return msg;
+  // Gemini missing-key errors are also user-actionable.
+  if (lower.includes("gemini_api_key not set")) return msg;
   return "LLM generation failed — see server logs for details";
 }
 

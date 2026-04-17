@@ -206,6 +206,16 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
     (s) => s.type === "recouple",
   ).length;
 
+  // `input.scenes` may contain stub scenes ({type: X} only) when the caller
+  // simulated an in-progress scene for lookahead. Those are fine for
+  // planning (planner only reads `.type`) but must NOT leak into
+  // `recentScenes` — that field flows to the server where coerceBuildArgs
+  // requires every scene to have id + dialogue[] + systemEvents[] etc. A
+  // real scene has a string `id`; stubs don't.
+  const realScenes = input.scenes.filter(
+    (s): s is Scene => typeof (s as Scene).id === "string",
+  );
+
   const planned: Array<{ sceneType: SceneType; buildArgs: BuildArgs }> = [];
   const simulatedTypes: SceneType[] = [];
   let stepsExamined = 0;
@@ -237,7 +247,7 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
       relationships: input.relationships,
       emotions: input.emotions,
       couples: input.couples,
-      recentScenes: input.scenes.slice(-3),
+      recentScenes: realScenes.slice(-3),
       sceneType,
       seasonTheme: input.seasonTheme,
       sceneNumber: input.scenes.length + simulatedTypes.length,
@@ -251,8 +261,8 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
     // path does at commit time, so the prefetched scene gets the same
     // game the user would have seen on live gen.
     if (sceneType === "minigame") {
-      const category = nextChallengeCategory(input.scenes);
-      const recentGameNames = input.scenes
+      const category = nextChallengeCategory(realScenes);
+      const recentGameNames = realScenes
         .slice(-6)
         .filter((s) => s.type === "minigame" || s.type === "challenge")
         .map((s) => s.title);

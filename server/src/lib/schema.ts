@@ -88,31 +88,39 @@ function asBeatIndex(v: unknown, plannedBeatCount: number): number | undefined {
   return idx;
 }
 
-// Clean dialogue/action text the LLM produced. Love Island scripts come back
-// with occasional garbage the prompt doesn't ask for:
-//   - U+00A6 broken-bar (¦) — some models emit this as a filler separator
-//   - leading emojiFace characters ("🕉 I'm so glad...") — LLM pattern-matches
-//     on the cast block and prepends each agent's emojiFace to their line
-//   - other non-printable / control characters
+// Clean dialogue/action text the LLM produced. Models emit miscellaneous
+// garbage the prompt doesn't ask for:
+//   - control characters + the broken-bar ¦ and section sign §
+//   - leading emoji/pictograph characters ("🕉 I'm so glad...", "✨Welcome✨",
+//     "§heyyyy") that the model imitated from the cast block or added as
+//     decoration. Strip at the START of the line regardless of whether
+//     there's whitespace after — LLMs don't always insert one. Also strip
+//     wrapping emoji at the END of the line (the "✨ ... ✨" sandwich
+//     pattern host announcements love)
+//   - other non-printable characters
 //
-// We strip these here so the bug is fixed once (server-side validation) rather
-// than hunted through every render site. Preserves meaningful punctuation,
-// action markers like "*sighs*", and the rest of the line content.
+// We strip these here so the bug is fixed once (server-side validation)
+// rather than hunted through every render site. Preserves meaningful
+// punctuation, action markers like "*sighs*", and inline emoji that
+// occur mid-sentence (those stay — they're likely intentional).
+const LEADER_STRIP_RE =
+  /^[\p{Emoji_Presentation}\p{Extended_Pictographic}\u00a6\u00a7\u2022\u2043]+/u;
+const TRAILER_STRIP_RE =
+  /[\p{Emoji_Presentation}\p{Extended_Pictographic}\u00a6\u00a7\u2022\u2043]+$/u;
+
 function sanitizeDialogueText(raw: string): string {
   let s = raw;
-  // Strip control chars (0x00-0x1F except tab/newline) and the broken-bar.
-  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u00a6]/g, "");
-  // Trim a leading emoji / pictograph if it's immediately followed by
-  // whitespace — LLMs add these as imitation of the cast block. Single-pass:
-  // we don't want to strip a meaningful mid-sentence emoji, only line-leaders.
-  //
-  // Regex: start of string, an emoji/pictograph range character, optional
-  // variation selector, then required whitespace.
-  s = s.replace(
-    /^[\u{1f300}-\u{1f9ff}\u{2600}-\u{27bf}\u{1fa70}-\u{1faff}\u{fe0f}]+\s+/u,
-    "",
-  );
-  return s.trim();
+  // Strip control chars.
+  s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
+  // Strip leading emoji/pictograph/separator run. Whitespace-optional so
+  // "✨Welcome" as well as "🕉 I'm so glad..." both get cleaned.
+  s = s.replace(LEADER_STRIP_RE, "");
+  // Trim whitespace that the leader-strip exposed.
+  s = s.trimStart();
+  // Strip trailing emoji-wrap so "Welcome ✨" → "Welcome", but don't nuke
+  // a period/question-mark sentence ending.
+  s = s.replace(TRAILER_STRIP_RE, "").trimEnd();
+  return s;
 }
 
 function stripTrailingCommas(s: string): string {
