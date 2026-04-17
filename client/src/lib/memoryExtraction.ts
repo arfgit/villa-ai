@@ -1,16 +1,8 @@
-// Memory extraction + reflection LLM calls.
-//
-// Both are intentionally BATCHED across all participants — we make ONE call to
-// extract observations for every participant in the scene, and ONE call when
-// it's time to reflect for every active agent. This keeps each scene cycle to
-// ~3 LLM round trips (scene + extract + maybe reflect) instead of 12+.
-//
-// Both run via the same provider as the main scene generation (Ollama in dev).
-
 import type { Agent, DialogueLine, AgentMemory, RewardEvent } from '@/types'
 import { formatRewardTrajectory, sumRewards } from './rewards'
 
-const DEFAULT_HOST = 'http://localhost:11434'
+// Same-origin by default — Vite dev proxies /ollama → localhost:11434.
+const DEFAULT_HOST = '/ollama'
 const DEFAULT_MODEL = 'qwen2.5:14b'
 
 function getHost(): string {
@@ -64,11 +56,6 @@ export interface ExtractedObservation {
   relatedAgentIds: string[]
 }
 
-// Single batched LLM call: returns observations for every participant.
-// Each participant's personality + current policy is injected so the LLM
-// filters what they notice through their specific character lens — a jealous
-// brooder and a strategic planner should notice different things about the
-// same scene.
 export async function extractObservationsForScene(args: {
   participants: Agent[]
   dialogue: DialogueLine[]
@@ -89,9 +76,6 @@ export async function extractObservationsForScene(args: {
     })
     .join('\n')
 
-  // Inject each participant's personality + policy + prior memories so the
-  // LLM generates observations through THEIR character filter, not a generic
-  // "what just happened" lens.
   const perAgentBlocks = participants.map((p) => {
     const recent = (prevMemoriesByAgent?.[p.id] ?? []).slice(-4)
     const priorList = recent.length > 0
@@ -106,8 +90,6 @@ export async function extractObservationsForScene(args: {
 ${priorList}`
   }).join('\n\n')
 
-  // A little variety in the framing question — pushes the LLM to look at
-  // different angles each call and avoid a rote structure.
   const FRAMINGS = [
     'What did each participant LEARN about someone else this scene?',
     'What did each participant FEEL most strongly when watching the others this scene?',
@@ -185,14 +167,6 @@ export interface ExtractedReflection {
   newPolicy: string
 }
 
-// Single batched LLM call: each agent reflects on their recent memories AND
-// their reward trajectory. This is the RL-style policy update — each agent
-// sees what rewards their past behavior produced (positive and negative)
-// and synthesizes a new policy (strategy label) that should perform better.
-//
-// This is not gradient-based RL. It's in-context policy iteration: the
-// reward signal drives policy updates via LLM reasoning, and the updated
-// policy then conditions the next scene's dialogue generation.
 export async function reflectAcrossAgents(args: {
   cast: Agent[]
   memoriesByAgent: Record<string, AgentMemory[]>

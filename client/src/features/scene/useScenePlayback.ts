@@ -24,8 +24,6 @@ export function useScenePlayback() {
 
     if (!isLast) {
       const t = setTimeout(() => {
-        // Re-check the latest store state in case the user paused between
-        // scheduling and the timer firing (React state batching window).
         if (useVillaStore.getState().ui.isPaused) return
         advanceLine()
       }, lineDelayMs)

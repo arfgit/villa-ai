@@ -5,7 +5,7 @@
   "workspaces": ["shared", "client", "server"],
   "scripts": {
     "dev": "concurrently -n server,client -c blue,magenta \"npm run dev:server\" \"npm run dev:client\"",
-    "dev:client": "vite",
+    "dev:client": "npm run dev -w client",
     "dev:server": "npm run dev -w server",
     "dev:local": "concurrently -n ollama,server,client -c green,blue,magenta \"OLLAMA_ORIGINS=* ollama serve\" \"npm run dev:server\" \"npm run dev:client\"",
     "build": "npm run build -w server && npm run build -w client",

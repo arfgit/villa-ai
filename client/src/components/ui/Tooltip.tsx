@@ -35,15 +35,10 @@ export default function Tooltip({ children, content, side = 'top' }: Props) {
     if (!enabled) setShow(false)
   }, [enabled])
 
-  // Reset measurement when hidden so we re-measure on next show.
   useEffect(() => {
     if (!show) setCoords(null)
   }, [show])
 
-  // Two-pass position: first render the tooltip invisibly, measure its
-  // actual dimensions, then set the clamped coords so it re-renders in
-  // the correct place. Handles arbitrarily tall content (brain tooltips
-  // with memories, rewards, reflections, etc).
   useLayoutEffect(() => {
     if (!show || !enabled || !triggerRef.current || !tooltipRef.current) return
     const rect = triggerRef.current.getBoundingClientRect()
@@ -71,13 +66,11 @@ export default function Tooltip({ children, content, side = 'top' }: Props) {
       left = rect.right + margin
     }
 
-    // Clamp into the viewport using the real measured size.
     const maxLeft = window.innerWidth - tooltipWidth - padding
     const maxTop = window.innerHeight - tooltipHeight - padding
     left = Math.max(padding, Math.min(maxLeft, left))
     top = Math.max(padding, Math.min(maxTop, top))
 
-    // Only update if position actually changed to avoid layout thrash.
     if (!coords || coords.top !== top || coords.left !== left || !coords.measured) {
       setCoords({ top, left, measured: true })
     }

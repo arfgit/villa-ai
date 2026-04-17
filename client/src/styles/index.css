@@ -21,6 +21,11 @@
     background: var(--color-villa-bg);
     color: var(--color-villa-ink);
     font-family: var(--font-mono);
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cline x1='8' y1='0' x2='8' y2='16' stroke='%23ff6fb5' stroke-width='1'/%3E%3Cline x1='0' y1='8' x2='16' y2='8' stroke='%23ff6fb5' stroke-width='1'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23ff6fb5'/%3E%3C/svg%3E") 8 8, crosshair;
+  }
+
+  button, a, [role="button"] {
+    cursor: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16'%3E%3Cline x1='8' y1='0' x2='8' y2='16' stroke='%23ffb347' stroke-width='1'/%3E%3Cline x1='0' y1='8' x2='16' y2='8' stroke='%23ffb347' stroke-width='1'/%3E%3Crect x='6' y='6' width='4' height='4' fill='%23ffb347'/%3E%3C/svg%3E") 8 8, pointer;
   }
 
   body {
@@ -63,6 +68,33 @@
   to { clip-path: inset(0 0 0 0); }
 }
 
+/* Screen-shake for peak-drama lines (yelling, CAPS, !!!). Short + aggressive. */
+@keyframes villa-shake {
+  0%, 100% { transform: translate3d(0, 0, 0); }
+  10% { transform: translate3d(-4px, 2px, 0) rotate(-0.3deg); }
+  20% { transform: translate3d(5px, -1px, 0) rotate(0.4deg); }
+  30% { transform: translate3d(-6px, 3px, 0) rotate(-0.5deg); }
+  40% { transform: translate3d(4px, -2px, 0) rotate(0.3deg); }
+  50% { transform: translate3d(-3px, 2px, 0) rotate(-0.2deg); }
+  60% { transform: translate3d(4px, -3px, 0) rotate(0.4deg); }
+  70% { transform: translate3d(-2px, 1px, 0) rotate(-0.2deg); }
+  80% { transform: translate3d(3px, -1px, 0) rotate(0.2deg); }
+  90% { transform: translate3d(-1px, 1px, 0) rotate(-0.1deg); }
+}
+
+/* Pulse/flash for the loud bubble itself. */
+@keyframes villa-loud-flash {
+  0% { box-shadow: 0 0 0 rgba(255, 77, 109, 0);      border-color: rgba(255, 77, 109, 0.4); }
+  40% { box-shadow: 0 0 24px rgba(255, 77, 109, 0.6); border-color: rgba(255, 77, 109, 1); }
+  100% { box-shadow: 0 0 0 rgba(255, 77, 109, 0);     border-color: rgba(255, 77, 109, 0.4); }
+}
+
+/* Gold sparkle glow for host dialogue — keeps host visually separated from cast. */
+@keyframes villa-host-sparkle {
+  0%, 100% { box-shadow: 0 0 14px rgba(255, 179, 71, 0.35); border-color: rgba(255, 179, 71, 0.6); }
+  50%      { box-shadow: 0 0 22px rgba(255, 179, 71, 0.7);  border-color: rgba(255, 179, 71, 1); }
+}
+
 @layer utilities {
   .ascii {
     white-space: pre;
@@ -93,6 +125,32 @@
 
   .animate-villa-typewriter {
     animation: villa-typewriter 0.8s steps(40) forwards;
+  }
+
+  .animate-villa-shake {
+    animation: villa-shake 0.55s cubic-bezier(.36,.07,.19,.97) both;
+  }
+
+  .animate-villa-loud {
+    animation: villa-loud-flash 0.8s ease-in-out both;
+  }
+
+  .animate-villa-host-sparkle {
+    animation: villa-host-sparkle 2.2s ease-in-out infinite;
+  }
+
+  /* Respect reduced-motion users — shake/flash/sway can cause nausea. Loud
+     bubbles keep their red border + bold text; only the animation is killed. */
+  @media (prefers-reduced-motion: reduce) {
+    .animate-villa-shake,
+    .animate-villa-loud,
+    .animate-villa-sway,
+    .animate-villa-bounce-talk,
+    .animate-villa-shimmer,
+    .animate-villa-water,
+    .animate-villa-host-sparkle {
+      animation: none !important;
+    }
   }
 
   .crt::after {

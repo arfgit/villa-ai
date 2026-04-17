@@ -1,21 +1,20 @@
 import type { Relationship, EmotionState, Agent } from '@/types'
+import { baseCompatibility } from '@/lib/castGenerator'
 
-// Contestants have NEVER met each other at the start of a season. Trust and
-// attraction are near zero — they will build (or not) through actual scene
-// interactions. A small random seed keeps first impressions slightly varied.
-// Now takes `cast` as a parameter so different season cast selections work.
 export function buildSeedRelationships(cast: Agent[]): Relationship[] {
   const rels: Relationship[] = []
   for (const a of cast) {
     for (const b of cast) {
       if (a.id === b.id) continue
+      const base = baseCompatibility(a.archetype, b.archetype)
+      const jitter = Math.floor(Math.random() * 10) - 5
       rels.push({
         fromId: a.id,
         toId: b.id,
         trust: Math.floor(Math.random() * 6),
         attraction: Math.floor(Math.random() * 10),
         jealousy: 0,
-        compatibility: 30 + Math.floor(Math.random() * 20),
+        compatibility: Math.max(0, Math.min(100, base + jitter)),
       })
     }
   }

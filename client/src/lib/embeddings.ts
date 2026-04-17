@@ -1,10 +1,6 @@
-// Ollama embeddings client. Used for memory retrieval — embed each memory once
-// when it's stored, embed the query at retrieval time, score by cosine similarity.
-//
-// Default model: nomic-embed-text (137M params, 768-dim, ~50ms per call locally).
-// Fast enough that batching is not strictly required.
-
-const DEFAULT_HOST = 'http://localhost:11434'
+// Same-origin by default — Vite dev proxies /ollama → localhost:11434.
+// Set VITE_OLLAMA_HOST to override (e.g. a remote Ollama host in prod).
+const DEFAULT_HOST = '/ollama'
 const DEFAULT_EMBED_MODEL = 'nomic-embed-text'
 
 interface OllamaEmbedResponse {
@@ -50,8 +46,6 @@ export async function embed(text: string): Promise<number[]> {
   return data.embedding
 }
 
-// Sequential batch — Ollama serializes per-model anyway, so parallel fetch
-// gives no real speedup. Keeping it sequential makes failures easier to debug.
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   const out: number[][] = []
   for (const t of texts) {

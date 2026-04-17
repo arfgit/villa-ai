@@ -33,7 +33,17 @@ export async function loadCurrentSession(): Promise<{ episode: unknown; cast: un
   }
 }
 
-export async function saveTrainingData(data: unknown): Promise<{ success: boolean; entryId: string }> {
+export async function loadSessionById(sessionId: string): Promise<{ episode: unknown; cast: unknown; sessionId: string } | null> {
+  try {
+    const data = await request<{ episode?: unknown; cast?: unknown; sessionId?: string }>(`/api/session/${sessionId}`)
+    if (data?.episode) return data as { episode: unknown; cast: unknown; sessionId: string }
+    return null
+  } catch {
+    return null
+  }
+}
+
+export async function saveTrainingData(data: unknown): Promise<{ success: boolean }> {
   return request('/api/training', { data })
 }
 
@@ -41,14 +51,34 @@ export async function fetchTrainingArchive(limit = 50): Promise<{ entries: unkno
   return request(`/api/training?limit=${limit}`)
 }
 
-export async function exportSeason(episode: unknown, cast: unknown): Promise<unknown> {
-  return request('/api/export/season', { episode, cast })
+// Per-session wisdom (archive + meta). Replaces the former localStorage
+// villa-ai-wisdom / villa-ai-meta-wisdom keys.
+export async function fetchWisdom(): Promise<{ archive: Record<string, unknown[]>; meta: unknown[] }> {
+  try {
+    return await request('/api/wisdom')
+  } catch {
+    return { archive: {}, meta: [] }
+  }
 }
 
-export async function exportRL(episode: unknown, cast: unknown): Promise<unknown> {
-  return request('/api/export/rl', { episode, cast })
+export async function saveWisdom(archive: Record<string, unknown[]>, meta: unknown[]): Promise<{ success: boolean }> {
+  return request('/api/wisdom', { archive, meta })
 }
 
-export async function healthCheck(): Promise<{ status: string }> {
-  return request('/api/health')
+// Cross-session RL meta pool — used when this session has no meta-wisdom yet
+// (fresh machine, cache wipe, brand-new user).
+export async function fetchAggregateWisdom(limit = 15): Promise<{ meta: unknown[] }> {
+  try {
+    return await request(`/api/wisdom/aggregate?limit=${limit}`)
+  } catch {
+    return { meta: [] }
+  }
+}
+
+export async function serverHealthCheck(): Promise<{ status: string; firebase: boolean }> {
+  try {
+    return await request('/api/health')
+  } catch {
+    return { status: 'unreachable', firebase: false }
+  }
 }

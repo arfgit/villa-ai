@@ -28,7 +28,7 @@ const METRIC_TIPS: Record<RelationshipMetric, string> = {
   trust: 'How much one islander trusts the other (0-100). Goes up when they confide or back each other up. Drops on betrayal or lies.',
   attraction: 'Romantic interest one feels toward the other (0-100). Increases through flirting and shared moments. Drops when ignored or rejected.',
   jealousy: 'How threatened one feels by the other (0-100). Spikes when their crush flirts with someone else. Cools down with reassurance.',
-  compatibility: 'Long-term fit between two islanders (0-100). Changes slowly. Based on archetype pairing and shared experiences.',
+  compatibility: 'Long-term fit between two islanders (0-100). Changes slowly. Based on archetype pairing and shared experiences. Low compatibility + high attraction = drama waiting to happen.',
 }
 
 export default function RelationshipMatrix({ cast, relationships, metric, onMetricChange, eliminatedIds = [] }: Props) {

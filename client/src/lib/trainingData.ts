@@ -1,113 +1,101 @@
 import type { Episode, Agent, AgentMemory } from '@/types'
-import { buildSeasonExport, buildRLExport } from './exportData'
+import {
+  fetchTrainingArchive as fetchFromServer,
+  fetchWisdom,
+  saveWisdom as saveWisdomApi,
+  fetchAggregateWisdom,
+} from './api'
 
-// ── localStorage keys ──
-const TRAINING_KEY = 'villa-ai-training'
-const WISDOM_KEY = 'villa-ai-wisdom'
-const META_WISDOM_KEY = 'villa-ai-meta-wisdom'
-const MAX_SEASONS = 5   // keep last N seasons of training data
+let cachedPastSeasonsBlock = ''
+let cacheInitialized = false
 
-// ── Types for persisted training data ──
 export interface TrainingArchive {
   seasons: SeasonSummary[]
   updatedAt: number
 }
 
-/** Compact season summary for prompt injection — NOT the full export */
 export interface SeasonSummary {
   seasonNumber: number
   theme: string
   winnerNames: [string, string] | null
   totalScenes: number
   eliminationCount: number
-  /** Top 3 most dramatic moments */
   highlights: string[]
-  /** Top lessons learned by agents (meta-wisdom) */
   lessons: string[]
 }
 
-// ── Wisdom persistence ──
+// In-memory caches. Hydrated from the server on boot by `hydrateWisdom()`;
+// mutated by the store during play; flushed back via `persistWisdom()`.
+// We keep a synchronous read API so callers (createEpisode) don't have to go
+// async in the hot path — the cache is always populated at boot time.
+let wisdomArchiveCache: Map<string, AgentMemory[]> = new Map()
+let metaWisdomCache: AgentMemory[] = []
+let wisdomHydrated = false
+let localArchiveCache: TrainingArchive = { seasons: [], updatedAt: 0 }
+const MAX_SEASONS = 5
 
 export function loadWisdomArchive(): Map<string, AgentMemory[]> {
-  try {
-    const raw = localStorage.getItem(WISDOM_KEY)
-    if (!raw) return new Map()
-    const entries = JSON.parse(raw) as Array<[string, AgentMemory[]]>
-    return new Map(entries)
-  } catch {
-    return new Map()
-  }
-}
-
-export function saveWisdomArchive(archive: Map<string, AgentMemory[]>): void {
-  try {
-    const entries = Array.from(archive.entries())
-    localStorage.setItem(WISDOM_KEY, JSON.stringify(entries))
-  } catch { /* quota exceeded */ }
+  return wisdomArchiveCache
 }
 
 export function loadMetaWisdom(): AgentMemory[] {
+  return metaWisdomCache
+}
+
+// Fetch wisdom from the backend and populate the in-memory caches. Called
+// once on app boot (alongside restoreFromServer). Safe to call again after
+// session-id changes. Falls back to the cross-session aggregate pool if this
+// session has no meta-wisdom yet — gives fresh machines a head start on RL.
+export async function hydrateWisdom(): Promise<void> {
   try {
-    const raw = localStorage.getItem(META_WISDOM_KEY)
-    if (!raw) return []
-    return JSON.parse(raw) as AgentMemory[]
+    const { archive, meta } = await fetchWisdom()
+    const entries = Object.entries(archive) as Array<[string, AgentMemory[]]>
+    wisdomArchiveCache = new Map(entries)
+    metaWisdomCache = (meta as AgentMemory[]) ?? []
+
+    if (metaWisdomCache.length === 0) {
+      const aggregate = await fetchAggregateWisdom(15)
+      metaWisdomCache = (aggregate.meta as AgentMemory[]) ?? []
+    }
   } catch {
-    return []
+    // Server unreachable — caches stay empty; the app still works, new agents
+    // just don't get seed wisdom until next boot.
+    wisdomArchiveCache = new Map()
+    metaWisdomCache = []
+  } finally {
+    wisdomHydrated = true
   }
 }
 
-export function saveMetaWisdom(wisdom: AgentMemory[]): void {
-  try {
-    localStorage.setItem(META_WISDOM_KEY, JSON.stringify(wisdom))
-  } catch { /* quota exceeded */ }
+export function isWisdomHydrated(): boolean {
+  return wisdomHydrated
 }
 
-// ── Training data auto-save ──
+// Flush the in-memory wisdom caches to the server. Fire-and-forget — callers
+// don't need to await. Errors are swallowed (the cache is the source of truth
+// for the current session either way).
+export function persistWisdom(): void {
+  const archiveObj: Record<string, AgentMemory[]> = {}
+  for (const [agentId, memories] of wisdomArchiveCache) {
+    archiveObj[agentId] = memories
+  }
+  saveWisdomApi(archiveObj, metaWisdomCache).catch(() => {})
+}
 
-/**
- * Auto-save season + RL training data after a season completes.
- * Called from archiveSeasonWisdom in the store.
- */
-export function autoSaveTrainingData(episode: Episode, cast: Agent[]): void {
-  // Build compact summary for prompt reference
-  const summary = buildSeasonSummary(episode, cast)
-
-  // Load existing archive
-  const archive = loadTrainingArchive()
-  archive.seasons.push(summary)
-  // Keep only the last N seasons
-  while (archive.seasons.length > MAX_SEASONS) archive.seasons.shift()
-  archive.updatedAt = Date.now()
-
-  try {
-    localStorage.setItem(TRAINING_KEY, JSON.stringify(archive))
-  } catch { /* quota exceeded */ }
-
-  // Also save the full exports for download later
-  try {
-    const seasonExport = buildSeasonExport(episode, cast)
-    const rlExport = buildRLExport(episode, cast)
-    const fullKey = 'villa-ai-exports'
-    const existing = JSON.parse(localStorage.getItem(fullKey) ?? '[]') as unknown[]
-    existing.push({ season: seasonExport, rl: rlExport })
-    while (existing.length > MAX_SEASONS) existing.shift()
-    localStorage.setItem(fullKey, JSON.stringify(existing))
-  } catch { /* quota exceeded — full exports are large, summary is the priority */ }
+export function autoSaveTrainingData(episode: Episode, _cast: Agent[]): void {
+  // Training data itself is persisted server-side by the store's syncToServer
+  // flow. This function now just refreshes the lightweight per-session summary
+  // cache so buildPastSeasonsPromptBlock has a fallback if the network's down.
+  const summary = buildSeasonSummary(episode, _cast)
+  localArchiveCache.seasons.push(summary)
+  while (localArchiveCache.seasons.length > MAX_SEASONS) localArchiveCache.seasons.shift()
+  localArchiveCache.updatedAt = Date.now()
 }
 
 export function loadTrainingArchive(): TrainingArchive {
-  try {
-    const raw = localStorage.getItem(TRAINING_KEY)
-    if (!raw) return { seasons: [], updatedAt: 0 }
-    return JSON.parse(raw) as TrainingArchive
-  } catch {
-    return { seasons: [], updatedAt: 0 }
-  }
+  return localArchiveCache
 }
 
-/**
- * Build a compact season summary suitable for prompt injection.
- */
 function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
   const winnerNames: [string, string] | null = episode.winnerCouple
     ? [
@@ -116,7 +104,6 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
       ]
     : null
 
-  // Extract highlights from key dramatic scenes
   const highlights: string[] = []
   for (const scene of episode.scenes) {
     for (const event of scene.systemEvents) {
@@ -132,7 +119,6 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
     }
   }
 
-  // Extract top lessons from agent reflections
   const lessons: string[] = []
   for (const brain of Object.values(episode.brains)) {
     const topReflection = brain.memories
@@ -145,7 +131,7 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
 
   return {
     seasonNumber: episode.number,
-    theme: episode.seasonTheme.split('\n')[0] ?? '',  // just the core tension line
+    theme: episode.seasonTheme.split('\n')[0] ?? '',
     winnerNames,
     totalScenes: episode.scenes.length,
     eliminationCount: episode.eliminatedIds.length,
@@ -154,12 +140,65 @@ function buildSeasonSummary(episode: Episode, cast: Agent[]): SeasonSummary {
   }
 }
 
-/**
- * Build a prompt block summarizing past seasons for the LLM.
- * Injected into scene prompts so the writers room has context on
- * what happened in prior seasons — the RL training reference.
- */
+export async function refreshTrainingCache(): Promise<void> {
+  try {
+    const { entries } = await fetchFromServer(50)
+    if (!entries || entries.length === 0) {
+      cachedPastSeasonsBlock = ''
+      cacheInitialized = true
+      return
+    }
+
+    // Each entry is a full session: { seasonNumber, seasonTheme, scenes: [...], castNames, ... }
+    const dialogueSamples: string[] = []
+    const seasonSummaries: string[] = []
+
+    for (const entry of entries.slice(0, 10)) {
+      const d = entry as Record<string, unknown>
+      const castNames = (d.castNames ?? {}) as Record<string, string>
+      const scenes = Array.isArray(d.scenes) ? d.scenes as Array<Record<string, unknown>> : []
+      const totalScenes = scenes.length
+
+      if (totalScenes > 0) {
+        const winner = d.winnerCouple
+          ? `${castNames[(d.winnerCouple as { a: string }).a] ?? '?'} & ${castNames[(d.winnerCouple as { b: string }).b] ?? '?'}`
+          : 'ongoing'
+        seasonSummaries.push(`Season ${d.seasonNumber} (${totalScenes} scenes, ${d.seasonTheme ?? 'no theme'}, winner: ${winner})`)
+
+        // Sample up to 3 scenes per session for dialogue reference
+        const sampled = scenes.slice(-3)
+        for (const scene of sampled) {
+          const lines = Array.isArray(scene.dialogue)
+            ? (scene.dialogue as Array<{ agentId: string; text: string }>)
+                .slice(0, 3)
+                .map((l) => `    ${castNames[l.agentId] ?? l.agentId}: "${l.text}"`)
+                .join('\n')
+            : ''
+          if (lines) {
+            dialogueSamples.push(`  Scene ${scene.sceneNumber} (${scene.sceneType}): ${scene.outcome ?? ''}\n${lines}`)
+          }
+        }
+      }
+    }
+
+    const parts: string[] = []
+    if (seasonSummaries.length > 0) {
+      parts.push(`## PAST SEASONS (reference for continuity)\n${seasonSummaries.join('\n')}`)
+    }
+    if (dialogueSamples.length > 0) {
+      parts.push(`## PAST DIALOGUE SAMPLES (style reference for the writers room)\n${dialogueSamples.slice(0, 15).join('\n')}`)
+    }
+
+    cachedPastSeasonsBlock = parts.length > 0 ? '\n' + parts.join('\n\n') + '\n' : ''
+    cacheInitialized = true
+  } catch {
+    cachedPastSeasonsBlock = ''
+  }
+}
+
 export function buildPastSeasonsPromptBlock(): string {
+  if (cacheInitialized) return cachedPastSeasonsBlock
+
   const archive = loadTrainingArchive()
   if (archive.seasons.length === 0) return ''
 

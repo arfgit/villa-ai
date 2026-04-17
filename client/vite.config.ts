@@ -1,19 +1,39 @@
-import { defineConfig } from 'vite'
-import react from '@vitejs/plugin-react'
-import tailwindcss from '@tailwindcss/vite'
-import { resolve } from 'path'
+import { defineConfig } from "vite";
+import react from "@vitejs/plugin-react";
+import tailwindcss from "@tailwindcss/vite";
+import { resolve } from "path";
 
 export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
-      '@': resolve(__dirname, './src'),
-      '@villa-ai/shared': resolve(__dirname, '../shared'),
+      "@": resolve(__dirname, "./src"),
+      "@villa-ai/shared": resolve(__dirname, "../shared"),
     },
   },
   server: {
     proxy: {
-      '/api': 'http://localhost:3001',
+      "/api": {
+        target: "http://localhost:3001",
+        changeOrigin: true,
+        configure: (proxy) => {
+          proxy.on("error", (_err, _req, res) => {
+            if ("writeHead" in res && typeof res.writeHead === "function") {
+              res.writeHead(503, { "Content-Type": "application/json" });
+              res.end(
+                JSON.stringify({
+                  error: "Server not ready yet — restart or wait a moment",
+                }),
+              );
+            }
+          });
+        },
+      },
+      "/ollama": {
+        target: "http://localhost:11434",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ollama/, ""),
+      },
     },
   },
-})
+});

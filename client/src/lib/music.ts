@@ -42,7 +42,7 @@ const FREQS = {
   C6: 1046.50, D6: 1174.66, E6: 1318.51,
 }
 
-const TRACKS = {
+const TRACKS: Record<SceneType | 'menu', Track> = {
   menu: {
     bassWave: 'triangle',
     leadWave: 'square',
@@ -253,6 +253,7 @@ TRACKS.casa_amor_arrival = TRACKS.bombshell
 TRACKS.casa_amor_date = TRACKS.date
 TRACKS.casa_amor_challenge = TRACKS.challenge
 TRACKS.casa_amor_stickswitch = TRACKS.recouple
+TRACKS.grand_finale = TRACKS.recouple
 
 function ensureContext(): AudioContext {
   if (!ctx) {

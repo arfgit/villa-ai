@@ -1,5 +1,5 @@
-import { useEffect } from 'react'
-import { useVillaStore } from '@/store/useVillaStore'
+import { useEffect, useState } from 'react'
+import { useVillaStore, restoreFromServer } from '@/store/useVillaStore'
 import { useBreakpoint } from '@/lib/useBreakpoint'
 import { changeTrack } from '@/lib/music'
 import EpisodeHeader from '@/features/episode/EpisodeHeader'
@@ -8,6 +8,8 @@ import SceneView from '@/features/scene/SceneView'
 import CastList from '@/features/agents/CastList'
 import RelationshipMatrix from '@/features/relationships/RelationshipMatrix'
 import Drawer from '@/components/ui/Drawer'
+import SessionModal from '@/components/ui/SessionModal'
+import ViewerChat from '@/features/viewer/ViewerChat'
 
 export default function App() {
   const cast = useVillaStore((s) => s.cast)
@@ -17,11 +19,18 @@ export default function App() {
   const toggleCast = useVillaStore((s) => s.toggleCast)
   const toggleRelationships = useVillaStore((s) => s.toggleRelationships)
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric)
+  const viewerMessages = useVillaStore((s) => s.viewerMessages)
 
   const bp = useBreakpoint()
+  const [isRestoring, setIsRestoring] = useState(true)
+  const [sessionModalOpen, setSessionModalOpen] = useState(false)
 
   const currentScene = episode.scenes.find((s) => s.id === currentSceneId)
   const currentSceneType = currentScene?.type
+
+  useEffect(() => {
+    restoreFromServer().finally(() => setIsRestoring(false))
+  }, [])
 
   useEffect(() => {
     if (currentSceneType) {
@@ -31,9 +40,17 @@ export default function App() {
     }
   }, [currentSceneType])
 
+  if (isRestoring) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-villa-bg crt">
+        <div className="text-villa-pink text-xs uppercase tracking-widest animate-pulse">loading your villa...</div>
+      </div>
+    )
+  }
+
   return (
     <div className="h-[100dvh] flex flex-col bg-villa-bg crt">
-      <EpisodeHeader />
+      <EpisodeHeader onSessionClick={() => setSessionModalOpen(true)} />
 
       {bp === 'desktop' ? (
         <div className="flex-1 grid grid-cols-[260px_1fr_320px] gap-3 p-3 overflow-hidden">
@@ -43,14 +60,19 @@ export default function App() {
           <div className="flex flex-col overflow-hidden">
             <SceneView />
           </div>
-          <div className="overflow-hidden">
-            <RelationshipMatrix
-              cast={cast}
-              relationships={episode.relationships}
-              metric={ui.activeRelationshipMetric}
-              onMetricChange={setRelationshipMetric}
-              eliminatedIds={episode.eliminatedIds}
-            />
+          <div className="flex flex-col overflow-hidden gap-2">
+            <div className="flex-1 overflow-hidden min-h-0">
+              <RelationshipMatrix
+                cast={cast}
+                relationships={episode.relationships}
+                metric={ui.activeRelationshipMetric}
+                onMetricChange={setRelationshipMetric}
+                eliminatedIds={episode.eliminatedIds}
+              />
+            </div>
+            <div className="h-[200px] shrink-0">
+              <ViewerChat messages={viewerMessages} />
+            </div>
           </div>
         </div>
       ) : (
@@ -77,6 +99,8 @@ export default function App() {
           eliminatedIds={episode.eliminatedIds}
         />
       </Drawer>
+
+      <SessionModal open={sessionModalOpen} onClose={() => setSessionModalOpen(false)} />
     </div>
   )
 }

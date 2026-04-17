@@ -1,9 +1,14 @@
 import { useEffect, useRef } from 'react'
 import { useVillaStore } from '@/store/useVillaStore'
 import { getSceneLabel } from '@/data/environments'
+import Tooltip from '@/components/ui/Tooltip'
 import clsx from 'clsx'
 
-export default function EpisodeHeader() {
+interface Props {
+  onSessionClick?: () => void
+}
+
+export default function EpisodeHeader({ onSessionClick }: Props) {
   const episode = useVillaStore((s) => s.episode)
   const currentSceneId = useVillaStore((s) => s.currentSceneId)
   const selectScene = useVillaStore((s) => s.selectScene)
@@ -16,9 +21,6 @@ export default function EpisodeHeader() {
       prevSceneIdRef.current = currentSceneId
       return
     }
-    // Only auto-scroll if the user was on the immediately preceding scene
-    // (i.e. "following along"). If they clicked an older scene to re-read,
-    // don't yank them to the new one.
     const scenes = episode.scenes
     const prevIdx = scenes.findIndex((s) => s.id === prevSceneIdRef.current)
     const curIdx = scenes.findIndex((s) => s.id === currentSceneId)
@@ -42,6 +44,16 @@ export default function EpisodeHeader() {
         <span className="text-sm font-bold tracking-widest uppercase">VILLA AI</span>
       </div>
       <span className="text-villa-dim text-[10px] uppercase">Season {episode.number}</span>
+      {onSessionClick && (
+        <Tooltip content="View your session key or load an existing villa session." side="bottom">
+          <button
+            onClick={onSessionClick}
+            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim hover:border-villa-aqua hover:text-villa-aqua px-2 py-0.5 shrink-0"
+          >
+            session
+          </button>
+        </Tooltip>
+      )}
       <div ref={scrollRef} className="flex-1 overflow-x-auto scrollbar-thin flex gap-1">
         {episode.scenes.map((scene, i) => {
           const recoupleOrdinal = scene.type === 'recouple'
