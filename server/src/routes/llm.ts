@@ -1,54 +1,9 @@
 import { Router } from "express";
 import { generateScene, generateBatchScene } from "../services/llm.js";
-import type { PlannedBeat, TurnIntent } from "@villa-ai/shared";
+import { buildScenePrompt } from "../lib/prompt.js";
+import { coerceBuildArgs } from "../lib/buildArgsSchema.js";
 
 export const llmRouter = Router();
-
-const VALID_INTENTS: TurnIntent[] = [
-  "flirt",
-  "deflect",
-  "reassure",
-  "challenge",
-  "test",
-  "manipulate",
-  "escalate",
-  "soften",
-  "confess",
-  "accuse",
-  "reveal",
-  "deny",
-  "joke",
-  "retreat",
-  "declare",
-];
-
-// Shape-validate plannedBeats at the trust boundary. Coercion inside schema.ts
-// assumes beats[i].intent is a valid TurnIntent — so reject any malformed beat
-// up front rather than letting undefined slip through into the fallback chain.
-function validatePlannedBeats(raw: unknown): PlannedBeat[] | undefined {
-  if (!Array.isArray(raw)) return undefined;
-  if (raw.length === 0 || raw.length > 16) return undefined;
-  const out: PlannedBeat[] = [];
-  for (const item of raw) {
-    if (!item || typeof item !== "object") return undefined;
-    const b = item as Record<string, unknown>;
-    if (typeof b.speakerId !== "string" || typeof b.emotionalTone !== "string")
-      return undefined;
-    if (
-      typeof b.intent !== "string" ||
-      !(VALID_INTENTS as string[]).includes(b.intent)
-    )
-      return undefined;
-    out.push({
-      speakerId: b.speakerId.slice(0, 64),
-      intent: b.intent as TurnIntent,
-      emotionalTone: b.emotionalTone.slice(0, 200),
-      target: typeof b.target === "string" ? b.target.slice(0, 64) : undefined,
-      loud: typeof b.loud === "boolean" ? b.loud : undefined,
-    });
-  }
-  return out;
-}
 
 // Reject arrays that aren't just short strings — agentIds get forwarded into
 // Set.has() comparisons + interpolated into log lines, so we don't want
@@ -77,18 +32,21 @@ function sanitizeErrorMessage(msg: string): string {
   return "LLM generation failed — see server logs for details";
 }
 
-// POST /api/llm/generate — one scene. Provider (gemini/ollama) is resolved
-// server-side from LLM_PROVIDER, so clients don't need to know or care.
+// POST /api/llm/generate — build the prompt server-side from structured
+// BuildArgs and call the LLM. Clients send game state + scene intent,
+// NOT a pre-assembled prompt string — that's the injection surface we
+// closed by moving assembly here.
 llmRouter.post("/generate", async (req, res) => {
   try {
-    const { prompt, validAgentIds, requiredSpeakerIds, plannedBeats } =
-      req.body;
-    if (
-      typeof prompt !== "string" ||
-      prompt.length > 50000 ||
-      !isValidAgentIdArray(validAgentIds)
-    ) {
-      res.status(400).json({ error: "Invalid prompt or validAgentIds" });
+    const { buildArgs, validAgentIds, requiredSpeakerIds } = req.body ?? {};
+
+    const args = coerceBuildArgs(buildArgs);
+    if (!args) {
+      res.status(400).json({ error: "Invalid buildArgs shape" });
+      return;
+    }
+    if (!isValidAgentIdArray(validAgentIds)) {
+      res.status(400).json({ error: "Invalid validAgentIds" });
       return;
     }
     const required =
@@ -96,8 +54,15 @@ llmRouter.post("/generate", async (req, res) => {
       isValidAgentIdArray(requiredSpeakerIds)
         ? requiredSpeakerIds
         : undefined;
-    const beats = validatePlannedBeats(plannedBeats);
-    const result = await generateScene(prompt, validAgentIds, required, beats);
+
+    const prompt = await buildScenePrompt(args);
+    const plannedBeats = args.sceneContext?.plannedBeats;
+    const result = await generateScene(
+      prompt,
+      validAgentIds,
+      required,
+      plannedBeats,
+    );
     res.json(result);
   } catch (err) {
     const msg = err instanceof Error ? err.message : "LLM generation failed";
@@ -106,16 +71,20 @@ llmRouter.post("/generate", async (req, res) => {
   }
 });
 
-// POST /api/llm/batch — batch-generate the next N scenes in one LLM call.
+// POST /api/llm/batch — batch-generate multiple scenes. Same BuildArgs
+// contract as /generate; batch-mode instructions are baked into the
+// prompt builder when isBatch is set.
 llmRouter.post("/batch", async (req, res) => {
   try {
-    const { prompt, validAgentIds, requiredSpeakerIds } = req.body;
-    if (
-      typeof prompt !== "string" ||
-      prompt.length > 50000 ||
-      !isValidAgentIdArray(validAgentIds)
-    ) {
-      res.status(400).json({ error: "Invalid prompt or validAgentIds" });
+    const { buildArgs, validAgentIds, requiredSpeakerIds } = req.body ?? {};
+
+    const args = coerceBuildArgs(buildArgs);
+    if (!args) {
+      res.status(400).json({ error: "Invalid buildArgs shape" });
+      return;
+    }
+    if (!isValidAgentIdArray(validAgentIds)) {
+      res.status(400).json({ error: "Invalid validAgentIds" });
       return;
     }
     const required =
@@ -123,6 +92,8 @@ llmRouter.post("/batch", async (req, res) => {
       isValidAgentIdArray(requiredSpeakerIds)
         ? requiredSpeakerIds
         : undefined;
+
+    const prompt = await buildScenePrompt(args);
     const result = await generateBatchScene(prompt, validAgentIds, required);
     res.json(result);
   } catch (err) {

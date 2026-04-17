@@ -16,9 +16,8 @@
     "noEmit": true,
     "paths": {
       "@/*": ["./src/*"],
-      "@villa-ai/shared": ["../shared"]
+      "@villa-ai/shared": ["../shared/index.ts"]
     }
   },
-  "include": ["src"],
-  "references": [{ "path": "../shared" }]
+  "include": ["src"]
 }

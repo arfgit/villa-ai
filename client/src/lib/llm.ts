@@ -1,13 +1,20 @@
 import type {
+  BuildArgs,
   LlmSceneResponse,
   LlmBatchSceneResponse,
-  PlannedBeat,
-} from "@/types";
+} from "@villa-ai/shared";
 
-// Client never talks to Gemini/Ollama directly — the server is the single
-// LLM gateway. Provider (gemini | ollama) is chosen server-side from
-// LLM_PROVIDER env. Ollama calls from the browser were a dev-only hack
-// that caused CORS pain and bypassed server-side validation.
+// The server owns prompt assembly now. Clients send STRUCTURED game state
+// (BuildArgs) and the server builds the prompt from it using fields whose
+// lengths are bounded by the validator and whose content is clipped by
+// the prompt builder itself. A malicious client can no longer slip a
+// free-form prompt string past validation.
+
+interface GenerateRequest {
+  buildArgs: BuildArgs;
+  validAgentIds: string[];
+  requiredSpeakerIds?: string[];
+}
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const res = await fetch(path, {
@@ -16,36 +23,34 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     body: JSON.stringify(body),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(
-      (err as { error?: string }).error ?? `LLM server error ${res.status}`,
-    );
+    const err = (await res.json().catch(() => ({ error: res.statusText }))) as {
+      error?: string;
+    };
+    throw new Error(err.error ?? `LLM server error ${res.status}`);
   }
   return res.json() as Promise<T>;
 }
 
 export async function generateScene(
-  prompt: string,
+  buildArgs: BuildArgs,
   validAgentIds: string[],
   requiredSpeakerIds?: string[],
-  plannedBeats?: PlannedBeat[],
 ): Promise<LlmSceneResponse> {
   return postJson<LlmSceneResponse>("/api/llm/generate", {
-    prompt,
+    buildArgs,
     validAgentIds,
     requiredSpeakerIds,
-    plannedBeats,
-  });
+  } satisfies GenerateRequest);
 }
 
 export async function generateBatchScene(
-  prompt: string,
+  buildArgs: BuildArgs,
   validAgentIds: string[],
   requiredSpeakerIds?: string[],
 ): Promise<LlmBatchSceneResponse> {
   return postJson<LlmBatchSceneResponse>("/api/llm/batch", {
-    prompt,
+    buildArgs,
     validAgentIds,
     requiredSpeakerIds,
-  });
+  } satisfies GenerateRequest);
 }

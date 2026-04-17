@@ -21,7 +21,7 @@ import {
   buildSeedRelationships,
   buildSeedEmotions,
 } from "@/data/seedRelationships";
-import { buildScenePrompt } from "@/lib/prompt";
+import type { BuildArgs } from "@villa-ai/shared";
 import { buildSceneContext } from "@/lib/sceneEngine";
 import { generateScene as generateSceneFromLlm } from "@/lib/llm";
 import {
@@ -1408,7 +1408,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           ? pickMinigame(challengeCategory, recentGameNames)
           : undefined;
 
-      const prompt = buildScenePrompt({
+      const buildArgs: BuildArgs = {
         cast: activeCast,
         host: needsHost ? HOST : undefined,
         relationships: initial.episode.relationships,
@@ -1463,7 +1463,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         sceneContext,
         recoupleScript,
         minigameDefinition,
-      });
+      };
 
       // Interviews are SOLO confessionals — only the subject is a valid speaker.
       // We have to enforce this at the id-whitelist level, not just the prompt,
@@ -1521,10 +1521,9 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           },
         });
         llm = await generateSceneFromLlm(
-          prompt,
+          buildArgs,
           validSceneIds,
           requiredSpeakers,
-          sceneContext?.plannedBeats,
         );
       }
 

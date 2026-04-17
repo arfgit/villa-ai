@@ -430,3 +430,62 @@ export interface TrainingEntry {
   exportedAt: number;
   createdAt: number;
 }
+
+/* ── Prompt builder inputs (shared so the server can assemble a prompt from ── */
+/* ── what the client sends over the wire, rather than accepting a raw       ── */
+/* ── client-built prompt string that bypasses server validation).           ── */
+
+export interface RecouplePlanStep {
+  chooserId: string;
+  chooserName: string;
+  partnerId: string;
+  partnerName: string;
+  rationale: string;
+}
+
+export interface RecoupleScript {
+  steps: RecouplePlanStep[];
+  unpairedId?: string;
+  unpairedName?: string;
+}
+
+export interface MinigameDefinition {
+  name: string;
+  category: "learn_facts" | "explore_attraction";
+  rules: string;
+  winCondition: string;
+}
+
+export interface BuildArgs {
+  cast: Agent[];
+  host?: Host;
+  relationships: Relationship[];
+  emotions: EmotionState[];
+  couples: Couple[];
+  recentScenes: Scene[];
+  sceneType: SceneType;
+  seasonTheme: string;
+  sceneNumber: number;
+  totalScenes?: number;
+  forcedParticipants?: string[];
+  isIntroduction?: boolean;
+  isFinale?: boolean;
+  agentMemories?: Record<string, AgentMemory[]>;
+  agentGoals?: Record<string, string>;
+  agentPolicies?: Record<string, string>;
+  arrivingBombshell?: Agent;
+  arrivingBombshells?: Agent[];
+  interviewSubjectId?: string;
+  competingCoupleIds?: string[][];
+  isRewardDate?: boolean;
+  rewardDateCoupleNames?: [string, string];
+  eliminationNarrative?: string;
+  eliminatedNames?: string;
+  challengeCategory?: ChallengeCategory;
+  casaAmorCast?: Agent[];
+  casaAmorCoupleArchetypes?: string;
+  grandFinaleRanking?: string;
+  sceneContext?: SceneContext;
+  recoupleScript?: RecoupleScript;
+  minigameDefinition?: MinigameDefinition;
+}

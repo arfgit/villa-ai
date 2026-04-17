@@ -18,8 +18,8 @@ import type {
   Scene,
   SceneType,
 } from "@/types";
+import type { BuildArgs } from "@villa-ai/shared";
 import { generateScene as generateSceneFromLlm } from "./llm";
-import { buildScenePrompt } from "./prompt";
 import { nextSceneType as planNextScene } from "./seasonPlanner";
 
 // ── Policy ──────────────────────────────────────────────────────────────
@@ -120,7 +120,7 @@ export async function prefetchScenes(
 ): Promise<QueuedScene[]> {
   const activeIds = input.activeCast.map((a) => a.id);
 
-  const planned: Array<{ sceneType: SceneType; prompt: string }> = [];
+  const planned: Array<{ sceneType: SceneType; buildArgs: BuildArgs }> = [];
   const recoupleCount = input.scenes.filter(
     (s) => s.type === "recouple",
   ).length;
@@ -148,7 +148,7 @@ export async function prefetchScenes(
 
     if (!isBatchable(sceneType)) break;
 
-    const prompt = buildScenePrompt({
+    const buildArgs: BuildArgs = {
       cast: input.activeCast,
       relationships: input.relationships,
       emotions: input.emotions,
@@ -159,15 +159,15 @@ export async function prefetchScenes(
       sceneNumber: input.scenes.length + planned.length + 1,
       isIntroduction: false,
       isFinale: false,
-    });
-    planned.push({ sceneType, prompt });
+    };
+    planned.push({ sceneType, buildArgs });
   }
 
   if (planned.length === 0) return [];
 
   const results = await Promise.all(
     planned.map((p) =>
-      generateSceneFromLlm(p.prompt, activeIds)
+      generateSceneFromLlm(p.buildArgs, activeIds)
         .then((scene): QueuedScene => ({ sceneType: p.sceneType, scene }))
         .catch((err) => {
           const msg = err instanceof Error ? err.message : String(err);
