@@ -155,6 +155,7 @@ export default function App() {
                 eliminatedIds={episode.eliminatedIds}
                 viewerSentiment={episode.viewerSentiment}
                 couples={episode.couples}
+                recentScenes={episode.scenes.slice(-3)}
               />
             </div>
             <div className="h-[200px] shrink-0">

@@ -127,7 +127,9 @@ export type SystemEventType =
   | "couple_formed"
   | "couple_broken"
   | "minigame_win"
-  | "challenge_win";
+  | "challenge_win"
+  | "gravity_shift"
+  | "gravity_threshold";
 
 export interface SystemEvent {
   id: string;
@@ -136,6 +138,11 @@ export interface SystemEvent {
   toId?: string;
   delta?: number;
   label: string;
+  // Required only for gravity_shift / gravity_threshold events so the reducer
+  // knows which relationship axis to move. Kept narrow (trust | attraction)
+  // because popularity should not touch compatibility (archetype baseline)
+  // or jealousy (peer-specific, not crowd-driven).
+  metric?: Extract<RelationshipMetric, "trust" | "attraction">;
 }
 
 export interface Scene {
@@ -265,6 +272,16 @@ export interface Episode {
   bombshellDatingUntilScene: number | null;
   casaAmorState: CasaAmorState | null;
   viewerSentiment: Record<string, number>;
+  // Tracks which agents have already crossed a popularity threshold in a given
+  // direction this season. Entries look like "sarah:up" or "zion:down" — once
+  // present, the corresponding gravity_threshold event does not refire for
+  // that agent/direction pair, so the big dramatic beat lands exactly once.
+  crossedThresholds: string[];
+  // Running sum of absolute gravity deltas applied per (from→to|metric) key.
+  // Drives the saturation decay in applySocialGravity: once |cumulative| >= 10,
+  // further drips halve. Keys look like "sarah->zion|trust". Empty on fresh
+  // sessions; hydration defaults to {}.
+  gravityCumulative: Record<string, number>;
   createdAt: number;
   updatedAt: number;
 }
@@ -493,6 +510,10 @@ export interface BuildArgs {
   // The prompt injects goal / tension / stakes / subtext as director notes
   // so the LLM realizes an intentional beat instead of drifting.
   outline?: SceneOutline;
+  // Per-agent live-chat sentiment (0-100). Drives the "VIEWER VIBES" block
+  // the prompt injects so the LLM can reference viewer favorites/targets in
+  // dialogue. Optional — when undefined or all neutral, no block is emitted.
+  viewerSentiment?: Record<string, number>;
 }
 
 /* ── Scene outlines (batch planner) ────────────────────────────────────── */

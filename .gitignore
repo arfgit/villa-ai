@@ -47,3 +47,4 @@ npm-debug.log*
 # Claude / AI tooling
 .claude/
 .serena/
+.gstack/

@@ -29,6 +29,43 @@ function clip(value: string | undefined, maxLen: number): string {
   return flat.length > maxLen ? flat.slice(0, maxLen - 1) + "…" : flat;
 }
 
+// Popularity-band thresholds mirror social-gravity.ts on the client. If either
+// side moves these, the LLM prompt will disagree with the gravity engine and
+// the loop starts lying. Keep them in sync.
+const PROMPT_FAVORITE_THRESHOLD = 70;
+const PROMPT_TARGET_THRESHOLD = 30;
+
+// Renders the "VIEWER VIBES" block for the prompt, listing favorites (>= 70)
+// and targets (<= 30). Returns null when sentiment is missing entirely or
+// every agent sits in the dead band — callers skip the header so the prompt
+// doesn't spend tokens on "nobody notable."
+function buildPopularityBlockForPrompt(
+  sentiment: Record<string, number> | undefined,
+  cast: Agent[],
+): string | null {
+  if (!sentiment) return null;
+  const favorites: string[] = [];
+  const targets: string[] = [];
+  for (const agent of cast) {
+    const value = sentiment[agent.id];
+    if (typeof value !== "number" || !Number.isFinite(value)) continue;
+    const name = clip(agent.name, 60);
+    if (value >= PROMPT_FAVORITE_THRESHOLD) {
+      favorites.push(`${name} ${Math.round(value)}`);
+    } else if (value <= PROMPT_TARGET_THRESHOLD) {
+      targets.push(`${name} ${Math.round(value)}`);
+    }
+  }
+  if (favorites.length === 0 && targets.length === 0) return null;
+  const lines = ["## VIEWER VIBES (from live chat, 0-100)"];
+  if (favorites.length > 0) lines.push(`favorites: ${favorites.join(", ")}`);
+  if (targets.length > 0) lines.push(`targets: ${targets.join(", ")}`);
+  lines.push(
+    "The cast is subconsciously aware of viewer heat (through producers, phone check-ins, each other's reactions). Let it inflect dialogue naturally — don't state the scores, but do let fan favorites feel slightly magnetic and targets slightly isolated.",
+  );
+  return lines.join("\n");
+}
+
 // Turn the SceneContext (produced by sceneEngine.ts) into a prompt section.
 // Replaces the old SCENE ARC / YELLING / CHARACTER-DRIVEN lecture blocks
 // with structured per-beat direction so the LLM follows a specific shape
@@ -144,6 +181,7 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
     recoupleScript,
     minigameDefinition,
     outline,
+    viewerSentiment,
   } = args;
   const sceneInfo = SCENE_LABELS[sceneType];
 
@@ -305,6 +343,16 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
         `${r.fromId}->${r.toId}: trust ${r.trust}, attraction ${r.attraction}, jealousy ${r.jealousy}, compatibility ${r.compatibility}`,
     )
     .join("\n");
+
+  // VIEWER VIBES block: inject live-chat favorites and targets so the LLM
+  // can have the cast subconsciously react to popularity (feels like
+  // producers dropping hints, phone check-ins). Only emit when at least one
+  // agent is outside the 30-70 dead band — "everyone feels average" adds
+  // zero signal and costs tokens.
+  const popularityBlock = buildPopularityBlockForPrompt(
+    viewerSentiment,
+    allCast,
+  );
 
   const emotionsBlock = emotions
     .filter((e) => allCast.some((c) => c.id === e.agentId))
@@ -848,7 +896,7 @@ ${castBlock}${hostBlock}${bombshellBlock}
 
 ## CURRENT RELATIONSHIPS (0-100)
 ${relsBlock}
-
+${popularityBlock ? `\n${popularityBlock}\n` : ""}
 ## CURRENT EMOTIONS
 ${emotionsBlock}
 

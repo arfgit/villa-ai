@@ -13,6 +13,7 @@ import type {
   RewardEvent,
   ViewerMessage,
   Couple,
+  SystemEvent,
 } from "@villa-ai/shared";
 import { HOST } from "@/data/host";
 import { sampleSeasonCast } from "@/data/castPool";
@@ -64,10 +65,11 @@ import {
 } from "@/lib/casaAmor";
 import type { CasaAmorState, StickOrSwitchChoice } from "@villa-ai/shared";
 import type { ChallengeCategory } from "@villa-ai/shared";
+import { generateViewerReactions } from "@/lib/viewerChat";
 import {
-  generateViewerReactions,
-  updateViewerSentiment,
-} from "@/lib/viewerChat";
+  aggregateChatToPopularity,
+  applySocialGravity,
+} from "@/lib/social-gravity";
 import { buildSeasonExport, buildRLExport } from "@/lib/exportData";
 import { downloadJson } from "@/lib/download";
 import {
@@ -340,6 +342,8 @@ function createEpisode(): Episode {
     bombshellDatingUntilScene: null,
     casaAmorState: null,
     viewerSentiment: {},
+    crossedThresholds: [],
+    gravityCumulative: {},
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -581,20 +585,48 @@ function applyRelDelta(
     r.compatibility = clamp(r.compatibility + delta);
 }
 
-function applyDeltas(
+// Structural subset of SystemEvent / LlmSystemEvent that the reducer actually
+// reads. Lets `applyEventList` accept both committed SystemEvent[] (from the
+// gravity pipeline, with `id`/`label`) and raw LlmSystemEvent[] (from the LLM,
+// without those fields) without casting.
+type ReducerEvent = Pick<
+  SystemEvent,
+  "type" | "fromId" | "toId" | "delta" | "metric"
+>;
+
+// Applies a gravity_shift or gravity_threshold event to the relationship row.
+// Dispatches on `event.metric` rather than `event.type` because both gravity
+// event types use the same reducer logic — only their narrative framing and
+// magnitude differ at emit time.
+function applyGravityEvent(rels: Relationship[], event: ReducerEvent) {
+  if (!event.fromId || !event.toId || event.delta === undefined) return;
+  if (!event.metric) return;
+  const r = rels.find(
+    (x) => x.fromId === event.fromId && x.toId === event.toId,
+  );
+  if (!r) return;
+  if (event.metric === "trust") r.trust = clamp(r.trust + event.delta);
+  if (event.metric === "attraction")
+    r.attraction = clamp(r.attraction + event.delta);
+}
+
+// Lower-level event-list reducer. Accepts any event-shaped objects — including
+// the synthetic gravity_shift / gravity_threshold events emitted by the social
+// gravity engine and the raw LlmSystemEvent[] the LLM returns — and folds them
+// into a new relationship / couples list. `applyDeltas` is a thin wrapper over
+// this plus emotion handling; the gravity pipeline reuses this helper directly.
+function applyEventList(
   rels: Relationship[],
-  emotions: EmotionState[],
   couples: { a: string; b: string }[],
-  llm: LlmSceneResponse,
+  events: readonly ReducerEvent[],
 ): {
   rels: Relationship[];
-  emotions: EmotionState[];
   couples: { a: string; b: string }[];
 } {
   const newRels = rels.map((r) => ({ ...r }));
   let newCouples = couples.map((c) => ({ ...c }));
 
-  for (const event of llm.systemEvents) {
+  for (const event of events) {
     if (event.type === "couple_formed" && event.fromId && event.toId) {
       newCouples = newCouples.filter(
         (c) =>
@@ -617,6 +649,11 @@ function applyDeltas(
       continue;
     }
 
+    if (event.type === "gravity_shift" || event.type === "gravity_threshold") {
+      applyGravityEvent(newRels, event);
+      continue;
+    }
+
     if (!event.fromId || !event.toId || event.delta === undefined) continue;
     if (
       event.type === "trust_change" ||
@@ -627,6 +664,25 @@ function applyDeltas(
       applyRelDelta(newRels, event.fromId, event.toId, event.type, event.delta);
     }
   }
+
+  return { rels: newRels, couples: newCouples };
+}
+
+function applyDeltas(
+  rels: Relationship[],
+  emotions: EmotionState[],
+  couples: { a: string; b: string }[],
+  llm: LlmSceneResponse,
+): {
+  rels: Relationship[];
+  emotions: EmotionState[];
+  couples: { a: string; b: string }[];
+} {
+  const { rels: newRels, couples: newCouples } = applyEventList(
+    rels,
+    couples,
+    llm.systemEvents,
+  );
 
   const newEmotions = emotions.map((e) => ({ ...e }));
   for (const update of llm.emotionUpdates) {
@@ -1128,6 +1184,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       casaAmorState: state.episode.casaAmorState,
       avgDramaScore: averageDramaScore(state.episode.dramaScores),
       gapToFill: policy.gapToFill,
+      viewerSentiment: state.episode.viewerSentiment,
       // Incremental enqueue — push each scene into the queue as it
       // lands, rather than waiting for the full batch. Episode-id fence
       // lives inside the callback so results from an abandoned batch
@@ -1751,6 +1808,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         sceneContext,
         recoupleScript,
         minigameDefinition,
+        viewerSentiment: initial.episode.viewerSentiment,
       };
 
       // Interviews are SOLO confessionals — only the subject is a valid speaker.
@@ -2537,14 +2595,72 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         postEp.casaAmorState,
         postEp.scenes.length,
       );
-      const updatedSentiment = updateViewerSentiment(
-        postEp.viewerSentiment,
-        scene,
-        postEp.couples,
+      // Aggregate chat messages into popularity deltas. `aggregateChatToPopularity`
+      // reads ViewerMessage[] as opaque — sentiment labels + name mentions —
+      // which keeps the pipeline swappable for a future RL-trained chat
+      // generator without touching the aggregator.
+      const activeCastForGravity = get().cast.filter(
+        (a) => !postEp.eliminatedIds.includes(a.id),
       );
+      const prevSentiment = postEp.viewerSentiment;
+      const updatedSentiment = aggregateChatToPopularity(
+        newViewerMessages,
+        scene,
+        prevSentiment,
+        activeCastForGravity,
+      );
+
+      // Run the gravity pass on the NEW sentiment against the committed
+      // relationships. Emits gravity_shift drips (continuous) and
+      // gravity_threshold events (named, once per direction per season).
+      const seasonCumulativeMap = new Map(
+        Object.entries(postEp.gravityCumulative),
+      );
+      const gravityResult = applySocialGravity(
+        updatedSentiment,
+        postEp.relationships,
+        activeCastForGravity,
+        seasonCumulativeMap,
+        prevSentiment,
+        postEp.crossedThresholds,
+      );
+
+      // Fold gravity events into the committed scene's systemEvents so they
+      // persist, export, and surface in the scene feed. Reuses applyEventList
+      // so drip deltas actually move relationship numbers — not just decoration.
+      const { rels: postGravityRels } = applyEventList(
+        postEp.relationships,
+        postEp.couples,
+        gravityResult.events,
+      );
+      const committedSceneIdx = postEp.scenes.findIndex(
+        (s) => s.id === scene.id,
+      );
+      const updatedScenes =
+        committedSceneIdx >= 0
+          ? postEp.scenes.map((s, i) =>
+              i === committedSceneIdx
+                ? {
+                    ...s,
+                    systemEvents: [...s.systemEvents, ...gravityResult.events],
+                  }
+                : s,
+            )
+          : postEp.scenes;
+
       set((s) => ({
         viewerMessages: [...s.viewerMessages, ...newViewerMessages],
-        episode: { ...s.episode, viewerSentiment: updatedSentiment },
+        episode: {
+          ...s.episode,
+          scenes: updatedScenes,
+          relationships: postGravityRels,
+          viewerSentiment: updatedSentiment,
+          crossedThresholds: [
+            ...postEp.crossedThresholds,
+            ...gravityResult.crossedThresholds,
+          ],
+          gravityCumulative: Object.fromEntries(gravityResult.nextCumulative),
+        },
       }));
 
       syncToServer({ episode: get().episode, cast: get().cast });
@@ -2632,6 +2748,15 @@ function migrateEpisode(episode: Episode): void {
     (
       episode as unknown as { viewerSentiment: Record<string, number> }
     ).viewerSentiment = {};
+  }
+  if (episode.crossedThresholds === undefined) {
+    (episode as unknown as { crossedThresholds: string[] }).crossedThresholds =
+      [];
+  }
+  if (episode.gravityCumulative === undefined) {
+    (
+      episode as unknown as { gravityCumulative: Record<string, number> }
+    ).gravityCumulative = {};
   }
 }
 
