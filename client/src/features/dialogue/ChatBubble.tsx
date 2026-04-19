@@ -29,8 +29,7 @@ export default function ChatBubble({
   isHost = false,
 }: Props) {
   const loud = isLoudLine(line);
-  // Host always wears the star-eyes avatar regardless of the LLM's emotion tag —
-  // the host isn't a contestant so per-emotion faces misrepresent their role.
+
   const avatarEmoji = isHost ? agent.emojiFace : EMOTION_EMOJI[line.emotion];
   return (
     <div

@@ -33,16 +33,6 @@ app.listen(PORT, () => {
     `[villa-ai server] LLM provider: ${provider} (${providerDetail})`,
   );
 
-  // Ollama parallelism diagnostic. Ollama's OLLAMA_NUM_PARALLEL env var
-  // is read by `ollama serve`, not by this process — we can't verify
-  // the value directly from here. But we CAN probe it: fire two small
-  // concurrent prompts at Ollama and time them. If they take ~2× a
-  // single request, parallelism is 1 and the client-side prefetch
-  // batching is silently serializing on Ollama's side. Log a loud
-  // warning with the fix command if detected.
-  //
-  // Runs async, 6s after startup, so it doesn't delay the dev loop.
-  // Harmless if Ollama is down (fetch fails silently, no warning).
   if (provider === "ollama") {
     setTimeout(() => {
       probeOllamaParallelism().catch(() => {
@@ -56,14 +46,8 @@ async function probeOllamaParallelism(): Promise<void> {
   const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
   const model = process.env.OLLAMA_MODEL ?? "llama3.2";
 
-  // Match the scene-gen runner's num_ctx so the probe doesn't spawn a
-  // separate runner with Ollama's VRAM-based default context (262144),
-  // which would end up with most layers on CPU and pollute the concurrency
-  // measurement. Keep in sync with services/ollama.ts NUM_CTX.
   const probeNumCtx = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
 
-  // Pre-warm the model so the concurrency probe isn't measuring model
-  // load time. Tiny prompt, ignore result.
   await fetch(`${host}/api/generate`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -91,11 +75,7 @@ async function probeOllamaParallelism(): Promise<void> {
       .then(() => Date.now() - start);
   };
 
-  // Solo baseline.
   const soloMs = await probe();
-  // Two concurrent probes. On num_parallel>=2 they should both finish
-  // in ~soloMs (clock runs concurrently). On num_parallel=1 the second
-  // waits for the first, so the SECOND probe's wallclock is ~2×soloMs.
   const concurrentStart = Date.now();
   const [a, b] = await Promise.all([probe(), probe()]);
   const concurrentTotal = Date.now() - concurrentStart;

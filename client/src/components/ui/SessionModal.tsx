@@ -41,49 +41,21 @@ export default function SessionModal({ open, onClose }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
-  // currentId is lazily resolved when the modal OPENS — calling
-  // getSessionId() during render would throw if ensureSessionId hasn't
-  // completed yet (SessionModal mounts with open=false during boot).
   const [currentId, setCurrentId] = useState<string | null>(null);
-  // Recent list in real state, not derived from localStorage via useMemo —
-  // lets handleForget update it directly instead of relying on a no-op
-  // setState to force a re-render (which React's bailout can skip).
   const [recent, setRecent] = useState<RecentSession[]>([]);
-  // Pending-confirm target for the load action. `null` = no prompt shown;
-  // a UUID string = "are you sure you want to switch to this session?"
-  // confirmation is pending for that UUID. Gate on this so the user
-  // never silently replaces their active session with a click-by-mistake.
   const [pendingLoadId, setPendingLoadId] = useState<string | null>(null);
-  // Separate confirm flag for the "start new session" button. Gets its
-  // own dialog (distinct wording) because switching to an existing
-  // session and spinning up a fresh one are different destructive acts.
   const [pendingNewSession, setPendingNewSession] = useState(false);
-  // Dev-only LLM provider toggle state. `null` means the dev endpoint
-  // returned 404 (prod, or NODE_ENV set) — hide the toggle entirely.
   const [providerState, setProviderState] = useState<ProviderState | null>(
     null,
   );
   const [providerSwitching, setProviderSwitching] = useState(false);
 
-  // Read isGenerating from the store so we can disable the destructive
-  // actions (switch session, start new session) while a scene is being
-  // generated — hitting them mid-generation would corrupt the in-flight
-  // write. The store also guards these internally, but disabling the
-  // UI gives the user immediate feedback instead of a delayed toast.
   const isGenerating = useVillaStore((s) => s.isGenerating);
   const startNewVilla = useVillaStore((s) => s.startNewVilla);
 
-  // Refs for focus management on the confirm dialog. We restore focus to
-  // the most recent trigger element when the dialog closes, and move
-  // focus to the cancel button on mount so keyboard users don't start
-  // tabbing from the page <body>.
   const confirmCancelRef = useRef<HTMLButtonElement>(null);
   const triggerFocusRef = useRef<HTMLElement | null>(null);
 
-  // Lazy resolution of the session UUID + recent list. Only runs when the
-  // modal opens — by then, App.tsx has already awaited ensureSessionId(),
-  // so getSessionId() is safe. Re-runs on every open so newly-rotated
-  // UUIDs (from startNewEpisode) show up without a page refresh.
   useEffect(() => {
     if (!open) return;
     let id: string;
@@ -96,14 +68,9 @@ export default function SessionModal({ open, onClose }: Props) {
     }
     setCurrentId(id);
     setRecent(readRecentSessions().filter((e) => e.id !== id));
-    // Probe the dev-only provider endpoint. Returns null in prod (endpoint
-    // is gated off) — we just don't show the toggle in that case.
     fetchProviderState().then(setProviderState);
   }, [open]);
 
-  // ESC closes whichever confirm dialog is open, or the modal itself if no
-  // confirm is pending. Handled globally so the handler picks up events
-  // regardless of which element currently holds focus.
   useEffect(() => {
     if (!open) return;
     function handleKey(e: KeyboardEvent) {
@@ -120,9 +87,6 @@ export default function SessionModal({ open, onClose }: Props) {
     return () => window.removeEventListener("keydown", handleKey);
   }, [open, pendingLoadId, pendingNewSession, onClose]);
 
-  // When either confirm dialog opens, move focus to its cancel button so
-  // keyboard users can hit Enter / ESC without hunting. Restore focus to
-  // the trigger element when both dialogs are closed.
   useEffect(() => {
     const confirmOpen = pendingLoadId !== null || pendingNewSession;
     if (confirmOpen) {
@@ -136,11 +100,6 @@ export default function SessionModal({ open, onClose }: Props) {
   }, [pendingLoadId, pendingNewSession]);
 
   if (!open) return null;
-  // If the modal opened but currentId is still null AND we've recorded an
-  // error (e.g. getSessionId threw because ensureSessionId hadn't finished),
-  // show a minimal error overlay instead of rendering nothing. Previously
-  // the guard below swallowed the UI entirely and clicking the session
-  // button looked like a no-op.
   if (!currentId) {
     if (error) {
       return (
@@ -186,9 +145,6 @@ export default function SessionModal({ open, onClose }: Props) {
         setTimeout(() => setCopied(false), 2000);
       })
       .catch(() => {
-        // Clipboard API can fail on http (non-secure) contexts, denied
-        // permission prompts, or older Safari. Surface it so the user
-        // knows to select-and-copy manually instead of seeing nothing.
         setError(
           "Copy failed — select the key manually and press ⌘C / Ctrl-C.",
         );
@@ -225,9 +181,6 @@ export default function SessionModal({ open, onClose }: Props) {
 
   function handleForget(id: string) {
     removeRecentSession(id);
-    // Update component state directly — this is the "real state tick" that
-    // the previous setInputId((v) => v) hack was faking. React's bailout
-    // optimization will NOT skip this because the reference changes.
     setRecent((prev) => prev.filter((e) => e.id !== id));
   }
 
@@ -248,17 +201,6 @@ export default function SessionModal({ open, onClose }: Props) {
   async function confirmNewSession() {
     setLoading(true);
     setError(null);
-    // startNewVilla rotates the session UUID (archiving the current
-    // villa to the server under its existing key) and boots a fresh
-    // episode. It guards on isGenerating internally — we also disable
-    // the button below to prevent the user reaching this path while a
-    // scene is in flight.
-    //
-    // try/finally: the store's startNewVilla is defensive but a
-    // downstream throw (e.g. createEpisode assert) would otherwise
-    // leave `loading=true` forever and lock the modal. Always unwind
-    // the spinner; surface the error message so the user sees why it
-    // failed instead of a stuck "starting..." button.
     try {
       await startNewVilla();
       setPendingNewSession(false);

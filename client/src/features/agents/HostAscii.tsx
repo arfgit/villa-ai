@@ -7,15 +7,6 @@ interface Props {
   speaking?: boolean;
 }
 
-// Host silhouette. The mic is rendered as an absolutely-positioned prop
-// beside the torso rather than inline on the arm row — otherwise the
-// extra character width pushes the rest of the body off-center (emoji
-// takes 2 char-widths, the whole arm line ends up ~3 chars wider on one
-// side, and a text-align:center container visually shifts everything).
-//
-// With absolute positioning, the torso stack (crown / head / arms /
-// legs / podium / name) is always vertically aligned on its own axis,
-// and the mic floats to the side without affecting layout.
 const IDLE_FRAMES = ["\\o/", "|o|", "/o\\"];
 const TALK_FRAMES = ["\\o/", "|o_", "\\o/", "_o|"];
 

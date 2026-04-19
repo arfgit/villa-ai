@@ -27,9 +27,6 @@ async function ensureInit(): Promise<void> {
       : undefined;
     const serviceAccountJson = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-    // Reject paths that escape SERVER_ROOT. rawPath comes from env and is
-    // operator-supplied, but still — a misconfigured `../../etc/passwd`
-    // should fail closed rather than silently read outside the project.
     if (serviceAccountPath && !serviceAccountPath.startsWith(SERVER_ROOT)) {
       throw new Error(
         `FIREBASE_SERVICE_ACCOUNT_PATH resolved outside server root: ${serviceAccountPath}`,
@@ -75,8 +72,6 @@ async function ensureInit(): Promise<void> {
   }
 }
 
-/* ── local-file helpers ── */
-
 function sanitizeDocId(docId: string): string {
   return docId.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
@@ -118,8 +113,6 @@ export function isFirebaseAvailable(): boolean {
   return useFirestore;
 }
 
-/* ── Villa Sessions ── */
-
 export async function saveSession(
   sessionId: string,
   data: unknown,
@@ -150,8 +143,6 @@ export async function getSession(sessionId: string): Promise<unknown> {
   }
   return localRead("villaSessions", sessionId);
 }
-
-/* ── Training Data (shared global collection) ── */
 
 export async function saveTrainingEntry(
   sessionId: string,
@@ -224,13 +215,6 @@ export async function getTrainingForSession(
   );
 }
 
-/* ── Season Archives (past seasons within a session) ── */
-
-// Write a completed season's snapshot to
-// `villaSessions/{sessionId}/seasons/{seasonNumber}` so the session doc
-// itself never grows unboundedly as a user plays Season 4, 5, 6... The
-// per-season archive is the authoritative record of who was on the villa
-// that season, final relationships, scene list, and winner.
 export async function saveSeasonArchive(
   sessionId: string,
   seasonNumber: number,
@@ -290,10 +274,6 @@ export async function listSeasonArchives(
       data: d.data(),
     }));
   }
-  // Local fallback: scan seasonArchives/ for entries whose sanitized id
-  // starts with this sessionId__. Sanitization replaces dashes in the
-  // UUID with underscores, so we reconstruct the filename prefix the
-  // same way sanitizeDocId does.
   const prefix = `${sessionId}__`.replace(/[^a-zA-Z0-9_-]/g, "_");
   const all = localQueryAll("seasonArchives") as Array<Record<string, unknown>>;
   return all
@@ -308,8 +288,6 @@ export async function listSeasonArchives(
     .sort((a, b) => a.seasonNumber - b.seasonNumber)
     .filter((row) => Number.isFinite(row.seasonNumber));
 }
-
-/* ── Wisdom Archives (unchanged) ── */
 
 export async function saveWisdom(key: string, data: unknown): Promise<void> {
   await ensureInit();

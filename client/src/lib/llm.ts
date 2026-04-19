@@ -4,12 +4,6 @@ import type {
   LlmBatchSceneResponse,
 } from "@villa-ai/shared";
 
-// The server owns prompt assembly now. Clients send STRUCTURED game state
-// (BuildArgs) and the server builds the prompt from it using fields whose
-// lengths are bounded by the validator and whose content is clipped by
-// the prompt builder itself. A malicious client can no longer slip a
-// free-form prompt string past validation.
-
 interface GenerateRequest {
   buildArgs: BuildArgs;
   validAgentIds: string[];

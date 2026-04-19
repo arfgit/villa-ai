@@ -1,8 +1,3 @@
-// Embeddings go through the server (/api/embeddings). The browser never
-// talks to Ollama directly anymore — in Firebase Hosting there's no
-// /ollama rewrite, and routing through the server also gives us one
-// validated + logged choke point.
-
 interface EmbedResponse {
   embedding?: number[];
   error?: string;
@@ -29,9 +24,6 @@ export async function embed(text: string): Promise<number[]> {
   return data.embedding;
 }
 
-// Sequential — the server's embedding backend typically serializes per
-// model, so parallel fetches give no real speedup. Keeping it sequential
-// also makes failures easier to attribute to a specific input.
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   const out: number[][] = [];
   for (const t of texts) {

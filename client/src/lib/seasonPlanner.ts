@@ -21,20 +21,10 @@ interface PlannerState {
   recoupleCount?: number;
 }
 
-// Casa Amor should feel mid-to-late season — the second-villa arc only
-// lands if the audience has seen the main cast bond enough to CARE when
-// they're tempted. Bar: enough recouples to establish stable couples,
-// at least one bombshell disruption, and a meaningful episode count.
-//
-// Targets a scene-20-ish trigger, with a backstop that force-fires in
-// midgame before the cast shrinks past the window.
 const CASA_AMOR_MIN_SCENES = 20;
 const CASA_AMOR_MIN_RECOUPLES = 3;
 const CASA_AMOR_MIN_COUPLES = 2;
-// "Now or never" — if midgame runs this long without Casa Amor, fire
-// with a relaxed bar (ignore the couples/recouples thresholds) so a
-// slightly-off state doesn't cost us the whole arc. Still requires a
-// prior bombshell so we don't collide with an un-shaken early state.
+
 const CASA_AMOR_BACKSTOP_SCENES = 24;
 
 const CHILL_SPOTS: SceneType[] = ["firepit", "pool", "kitchen", "bedroom"];
@@ -42,9 +32,7 @@ const CHILL_SPOTS: SceneType[] = ["firepit", "pool", "kitchen", "bedroom"];
 function currentPhase(state: PlannerState): SeasonPhase {
   if (state.scenes.length === 0) return "intro";
   if (state.activeCastCount <= 2) return "finale_ceremony";
-  // 4 cast + 2 couples = grand-finale stalemate. We can't eliminate anyone
-  // without breaking a couple, so bump to finale_ceremony to trigger the
-  // viewer-chat-decides grand_finale scene.
+
   if (state.activeCastCount === 4 && state.coupleCount === 2)
     return "finale_ceremony";
   const recouples = state.scenes.filter((s) => s.type === "recouple").length;
@@ -68,29 +56,11 @@ export function nextSceneType(state: PlannerState): SceneType {
   if (phase === "intro") return "introductions";
 
   if (phase === "finale_ceremony") {
-    // 4 cast + 2 couples → grand_finale (live chat picks the winning couple).
-    // Otherwise (≤2 cast or singles remaining), the classic recouple finale.
     if (state.activeCastCount === 4 && state.coupleCount === 2)
       return "grand_finale";
     return "recouple";
   }
 
-  // Love Island opening sequence:
-  //   scene 0 = introductions (handled above by phase === 'intro')
-  //   scene 1 = firepit mingling — cast has just met, no couples exist,
-  //             they're sizing each other up and flirting tentatively.
-  //             This is where the first meaningful attraction deltas land
-  //   scene 2 = pool mingling — second day of hanging out, attractions
-  //             solidify, some rivalries form
-  //   scene 3 = first coupling — by this point the cast has felt some
-  //             chemistry, so pairing up has actual motivation behind it
-  //             (whereas coupling on day 1 would be purely name+look based)
-  //   scene 4 = kitchen — morning after the coupling, couples wake up
-  //             next to their new partner, first gossip starts
-  //   scene 5+ = dynamic (dates, mini-games, more ambient, bombshells)
-  //
-  // Mini-games and challenges come LATER (scene 5+) once couples exist
-  // and have enough history to compete against each other meaningfully.
   if (sceneCount === 1) return "firepit";
   if (sceneCount === 2) return "pool";
   if (sceneCount === 3) return "recouple";
@@ -109,13 +79,10 @@ export function nextSceneType(state: PlannerState): SceneType {
     if (datesSinceBombshell < 2) return "date";
   }
 
-  // Casa Amor: if active, delegate to arc scene type
   if (state.casaAmorState && state.casaAmorState.phase !== "post") {
     return nextCasaAmorSceneType(state.casaAmorState);
   }
 
-  // Casa Amor trigger: midgame, enough scenes/recouples/couples, at least
-  // one bombshell has already shaken things up, and it hasn't happened yet.
   const recouples =
     state.recoupleCount ??
     state.scenes.filter((s) => s.type === "recouple").length;
@@ -126,12 +93,7 @@ export function nextSceneType(state: PlannerState): SceneType {
     recouples >= CASA_AMOR_MIN_RECOUPLES &&
     state.coupleCount >= CASA_AMOR_MIN_COUPLES &&
     state.bombshellsIntroduced >= 1;
-  // Backstop: we're deep in midgame, Casa Amor hasn't fired, and the cast
-  // is about to shrink into lategame where the arc no longer makes sense.
-  // Fire with a relaxed bar (ignore the couples/recouples thresholds) so
-  // a slightly-off state doesn't cost us the whole arc. Still requires a
-  // prior bombshell so we don't collide with an early "nobody's been
-  // shaken yet" state.
+
   const casaAmorBackstop =
     phase === "midgame" &&
     !state.casaAmorState &&
@@ -154,7 +116,6 @@ export function nextSceneType(state: PlannerState): SceneType {
     return "bombshell";
   }
 
-  // Elimination ceremonies — frequency scales with cast size
   const hasHadRecouple = state.scenes.some((s) => s.type === "recouple");
   if (hasHadRecouple && state.activeCastCount > 4) {
     const scenesSinceLastElim = scenesAfterLastOfTypes(state.scenes, [
@@ -164,14 +125,10 @@ export function nextSceneType(state: PlannerState): SceneType {
       "producer_twist",
     ]);
 
-    // Large cast (10+): eliminate every 2-3 scenes to thin the herd
-    // Medium cast (6-9): every 3-4 scenes
-    // Small cast (5): every 4 scenes
     const elimInterval =
       state.activeCastCount >= 10 ? 2 : state.activeCastCount >= 6 ? 3 : 4;
 
     if (phase === "midgame" && scenesSinceLastElim >= elimInterval) {
-      // Higher chance with more cast — guaranteed when 12+ people
       const elimChance =
         state.activeCastCount >= 12
           ? 1.0
@@ -250,7 +207,6 @@ function pickVarietyScene(state: PlannerState): SceneType {
 
   const lastScene = state.scenes[state.scenes.length - 1];
   if (lastScene?.type === "challenge" && state.coupleCount > 0) {
-    // Reward-date after a challenge only makes sense when at least one couple exists.
     return "date";
   }
 
@@ -309,9 +265,6 @@ function scenesAfterLastOfTypes(scenes: Scene[], types: SceneType[]): number {
 }
 
 export function nextCasaAmorSceneType(state: CasaAmorState): SceneType {
-  // Arc: arrival (sc=1) → date #1 (sc=2) → date #2 (sc=3) → challenge #1 (sc=4)
-  //   → challenge #2 (sc=5) → stickswitch (sc=6). Each date/challenge pair is
-  //   scheduled twice so both split groups get their own scene with the Casa cast.
   if (state.scenesCompleted <= 1) return "casa_amor_date";
   if (state.scenesCompleted === 2) return "casa_amor_date";
   if (state.scenesCompleted === 3) return "casa_amor_challenge";
@@ -329,7 +282,6 @@ export function isSeasonComplete(
 export function nextChallengeCategory(
   scenes: Scene[],
 ): "learn_facts" | "explore_attraction" {
-  // Alternate relative to the most recent game with a known category.
   for (let i = scenes.length - 1; i >= 0; i--) {
     const s = scenes[i]!;
     if (s.type !== "challenge" && s.type !== "minigame") continue;
@@ -339,10 +291,6 @@ export function nextChallengeCategory(
   return Math.random() < 0.5 ? "learn_facts" : "explore_attraction";
 }
 
-/* ── Batch planning ────────────────────────────────────────────────────── */
-
-// Narrative-role archetype per scene type — drives the outline's goal and
-// subtext copy. Keeps the director notes in a single place.
 function outlineShape(
   sceneType: SceneType,
   state: BatchPlanState,
@@ -501,9 +449,7 @@ function outlineShape(
         ],
         tension: 100,
       };
-    // Unreachable via planner today but typed-exhaustive.
     default: {
-      // Fallback so additions to SceneType don't silently produce empty outlines.
       return {
         goal: `Advance the ${couplesList.length}-couple villa state through a ${sceneType} beat.`,
         stakes: "Something shifts that matters for next scene.",
@@ -514,15 +460,11 @@ function outlineShape(
   }
 }
 
-// Participant-picking heuristic. Keeps the pick size + cast relevant to
-// the scene type — procedural scenes want everyone, ambient scenes want
-// a dramatic subset tied to recent events.
 function pickParticipants(
   sceneType: SceneType,
   state: BatchPlanState,
 ): string[] {
   const { activeCastIds, couplesList } = state;
-  // Ensemble scenes need everyone in earshot.
   if (
     sceneType === "introductions" ||
     sceneType === "recouple" ||
@@ -537,21 +479,14 @@ function pickParticipants(
   ) {
     return [...activeCastIds];
   }
-  // Date scenes are a single pair.
   if (sceneType === "date") {
     const firstCouple = couplesList[0];
     if (firstCouple) return [firstCouple.a, firstCouple.b];
-    // No couples yet — return 2 random active for a pre-coupling date.
     return activeCastIds.slice(0, 2);
   }
-  // Interview is solo.
   if (sceneType === "interview") {
     return activeCastIds.slice(0, 1);
   }
-  // Ambient social scenes (firepit/pool/kitchen/bedroom) — 3-5 islanders
-  // pulled from the front of the active cast. Deterministic by list
-  // order so two sequential calls with the same input give the same
-  // picks (avoids surprise randomness in the outline).
   const groupSize = Math.max(
     3,
     Math.min(5, Math.floor(activeCastIds.length / 2)),
@@ -559,9 +494,6 @@ function pickParticipants(
   return activeCastIds.slice(0, groupSize);
 }
 
-// Captures only the planner-relevant shape of the state so callers don't
-// have to pass the full Episode. Derived once per batch, advanced per
-// outline during planning.
 interface BatchPlanState {
   scenes: Scene[];
   activeCastIds: string[];
@@ -649,9 +581,6 @@ export function planBatch(input: PlanBatchInput): SceneOutline[] {
       tension: shape.tension,
       stakes: shape.stakes,
       subtext: shape.subtext,
-      // Simple linear dependency: every scene depends on the one before
-      // it because the working state is threaded forward. Topo-sort
-      // comes in a later step (10); for now every i > 0 depends on i-1.
       dependsOnSequence: i === 0 ? undefined : i - 1,
     });
     simulatedTypes.push(sceneType);

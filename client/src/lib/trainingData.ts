@@ -24,10 +24,6 @@ export interface SeasonSummary {
   lessons: string[];
 }
 
-// In-memory caches. Hydrated from the server on boot by `hydrateWisdom()`;
-// mutated by the store during play; flushed back via `persistWisdom()`.
-// We keep a synchronous read API so callers (createEpisode) don't have to go
-// async in the hot path — the cache is always populated at boot time.
 let wisdomArchiveCache: Map<string, AgentMemory[]> = new Map();
 let metaWisdomCache: AgentMemory[] = [];
 let wisdomHydrated = false;
@@ -42,10 +38,6 @@ export function loadMetaWisdom(): AgentMemory[] {
   return metaWisdomCache;
 }
 
-// Fetch wisdom from the backend and populate the in-memory caches. Called
-// once on app boot (alongside restoreFromServer). Safe to call again after
-// session-id changes. Falls back to the cross-session aggregate pool if this
-// session has no meta-wisdom yet — gives fresh machines a head start on RL.
 export async function hydrateWisdom(): Promise<void> {
   try {
     const { archive, meta } = await fetchWisdom();
@@ -58,8 +50,6 @@ export async function hydrateWisdom(): Promise<void> {
       metaWisdomCache = (aggregate.meta as AgentMemory[]) ?? [];
     }
   } catch {
-    // Server unreachable — caches stay empty; the app still works, new agents
-    // just don't get seed wisdom until next boot.
     wisdomArchiveCache = new Map();
     metaWisdomCache = [];
   } finally {
@@ -71,12 +61,6 @@ export function isWisdomHydrated(): boolean {
   return wisdomHydrated;
 }
 
-// Flush the in-memory wisdom caches to the server. Returns a promise so
-// callers that MUST sequence later work behind this flush (e.g.
-// startNewEpisode's UUID rotation — we need the archive write to land on
-// the OLD session before we rotate) can await it. Legacy fire-and-forget
-// callers can ignore the returned promise and rely on the internal catch
-// that swallows network errors.
 export function persistWisdom(): Promise<void> {
   const archiveObj: Record<string, AgentMemory[]> = {};
   for (const [agentId, memories] of wisdomArchiveCache) {
@@ -89,11 +73,6 @@ export function persistWisdom(): Promise<void> {
 }
 
 export function autoSaveTrainingData(episode: Episode, _cast: Agent[]): void {
-  // Training data itself is persisted server-side via the store's
-  // syncToServer flow. This function maintains a local rolling summary
-  // cache (read by loadTrainingArchive in the export path). It is NOT
-  // connected to the server's prompt builder — server/src/lib/trainingData.ts
-  // has its own independent Firestore-backed cache for that.
   const summary = buildSeasonSummary(episode, _cast);
   localArchiveCache.seasons.push(summary);
   while (localArchiveCache.seasons.length > MAX_SEASONS)
@@ -160,7 +139,6 @@ export async function refreshTrainingCache(): Promise<void> {
       return;
     }
 
-    // Each entry is a full session: { seasonNumber, seasonTheme, scenes: [...], castNames, ... }
     const dialogueSamples: string[] = [];
     const seasonSummaries: string[] = [];
 
@@ -180,7 +158,6 @@ export async function refreshTrainingCache(): Promise<void> {
           `Season ${d.seasonNumber} (${totalScenes} scenes, ${d.seasonTheme ?? "no theme"}, winner: ${winner})`,
         );
 
-        // Sample up to 3 scenes per session for dialogue reference
         const sampled = scenes.slice(-3);
         for (const scene of sampled) {
           const lines = Array.isArray(scene.dialogue)

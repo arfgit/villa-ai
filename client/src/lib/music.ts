@@ -512,7 +512,6 @@ const TRACKS: Record<SceneType | "menu", Track> = {
   },
 } as Record<SceneType | "menu", Track>;
 
-// Alias new scene types to existing tracks
 TRACKS.introductions = TRACKS.firepit;
 TRACKS.public_vote = TRACKS.recouple;
 TRACKS.islander_vote = TRACKS.recouple;

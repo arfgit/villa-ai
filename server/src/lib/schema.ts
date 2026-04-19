@@ -88,27 +88,6 @@ function asBeatIndex(v: unknown, plannedBeatCount: number): number | undefined {
   return idx;
 }
 
-// Clean dialogue/action text the LLM produced. Models emit miscellaneous
-// garbage the prompt doesn't ask for:
-//   - control characters + the broken-bar ¦ and section sign §
-//   - leading emoji/pictograph characters ("🕉 I'm so glad...", "✨Welcome✨",
-//     "§heyyyy") that the model imitated from the cast block or added as
-//     decoration. Strip at the START of the line regardless of whether
-//     there's whitespace after — LLMs don't always insert one. Also strip
-//     wrapping emoji at the END of the line (the "✨ ... ✨" sandwich
-//     pattern host announcements love)
-//   - other non-printable characters
-//
-// We strip these here so the bug is fixed once (server-side validation)
-// rather than hunted through every render site. Preserves meaningful
-// punctuation, action markers like "*sighs*", and inline emoji that
-// occur mid-sentence (those stay — they're likely intentional).
-// Character class covers: emoji presentation, extended pictographic (covers
-// most modern emoji regardless of skin-tone modifiers), the U+FE0F variation
-// selector (often trails an emoji like ❤️ = ❤ + FE0F), the U+200D zero-width
-// joiner (binds compound emoji like 👨‍👩‍👧), and a few common stray chars
-// the LLM sometimes emits as decoration (¦ § bullets). Whitespace too, so
-// the leader/trailer strip also eats any gaps between emojis.
 const DECORATOR_CLASS =
   "\\p{Emoji_Presentation}\\p{Extended_Pictographic}\\u200d\\ufe0f\\u00a6\\u00a7\\u2022\\u2043\\s";
 const LEADER_STRIP_RE = new RegExp(`^[${DECORATOR_CLASS}]+`, "u");
@@ -116,39 +95,18 @@ const TRAILER_STRIP_RE = new RegExp(`[${DECORATOR_CLASS}]+$`, "u");
 
 function sanitizeDialogueText(raw: string): string {
   let s = raw;
-  // Strip control chars.
   s = s.replace(/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/g, "");
-  // Strip leading emoji/pictograph/separator run. Whitespace-optional so
-  // "✨Welcome" as well as "🕉 I'm so glad..." both get cleaned.
   s = s.replace(LEADER_STRIP_RE, "");
   s = s.trimStart();
   s = s.replace(TRAILER_STRIP_RE, "").trimEnd();
-  // Strip stray caret / markdown-emphasis-like characters that LLMs
-  // occasionally emit at the start of stage directions (observed:
-  // "*^nervous laughter*"). These don't render as anything meaningful
-  // in our ChatBubble pipeline, they just look like corruption.
   s = s.replace(/^[\^~`_]+/u, "").trimStart();
   s = s.replace(/[\^~`_]+$/u, "").trimEnd();
-  // Strip whole-line asterisk wrap. The LLM sometimes emits every
-  // dialogue line as "*babe, I'm nervous...*" — the whole line renders
-  // italic (Markdown emphasis) and reads as narration instead of speech.
-  // Detection: starts with * AND ends with * AND no other * appears
-  // inside (if there were inline *action* markers, we'd see >= 3 stars).
-  // In that narrow case, unwrap. Leaves "*sighs* said..." alone because
-  // that pattern has * at positions 0 and 6 but NOT at the end.
   if (s.length >= 2 && s.startsWith("*") && s.endsWith("*")) {
     const inner = s.slice(1, -1);
     if (!inner.includes("*")) {
       s = inner.trim();
     }
   }
-  // Final junk check — after stripping decorators, unwrapping asterisks,
-  // and trimming, if nothing real is left (pure asterisks, pure punctuation,
-  // or just whitespace), return empty. The caller's length-based filter
-  // then drops the whole dialogue line instead of rendering "***" or ".."
-  // as speech. Observed cases: Haiku emitting dialogue entries with only
-  // "***" in the text field when it meant to put the action elsewhere;
-  // JSON-repair leaving stubs like ";" or "" after truncation.
   if (!/[\p{L}\p{N}]/u.test(s)) {
     return "";
   }
@@ -284,14 +242,12 @@ function repairAndParse(text: string): Record<string, unknown> {
   try {
     return JSON.parse(cleaned) as Record<string, unknown>;
   } catch {
-    // continue to repair
   }
 
   const noTrailing = stripTrailingCommas(cleaned);
   try {
     return JSON.parse(noTrailing) as Record<string, unknown>;
   } catch {
-    // continue
   }
 
   const closed = closeUnterminated(noTrailing);
@@ -350,10 +306,6 @@ export function parseAndValidate(
         agentId: d.agentId as string,
         text: cleanedText,
         emotion: asEmotion(d.emotion),
-        // action is optional stage direction ("leans forward", "gasps").
-        // If the sanitizer reduces it to empty (pure asterisks, caret-only,
-        // or pure punctuation), drop it entirely rather than letting a
-        // meaningless string render as an italic line above the dialogue.
         action: (() => {
           if (typeof d.action !== "string") return undefined;
           const cleaned = sanitizeDialogueText(d.action).slice(0, 80);
@@ -368,8 +320,7 @@ export function parseAndValidate(
         quotable: d.quotable === true ? true : undefined,
       };
     })
-    .filter((d) => d.text.length > 0) // sanitization may have nuked a pure-emoji line
-    .slice(0, dialogueCap);
+    .filter((d) => d.text.length > 0)    .slice(0, dialogueCap);
 
   if (plannedBeats && plannedBeats.length > 0) {
     const touched = new Set(
@@ -385,9 +336,6 @@ export function parseAndValidate(
     }
   }
 
-  // Prioritize couple_formed / couple_broken events over numeric deltas —
-  // an intro with 8 contestants needs 4 couple_formed events, and a truncation
-  // cap of 8 would drop them if the LLM emits deltas first.
   const allEvents = (systemEvents as Array<Record<string, unknown>>)
     .filter((e) => typeof e.label === "string")
     .map((e) => ({
@@ -427,10 +375,6 @@ export function parseAndValidate(
     throw new Error("Scene response had no valid dialogue lines");
   }
 
-  // Deliberately NOT padding missing required speakers with canned reactions.
-  // Short real dialogue beats fake filler every time. Fix ensemble coverage
-  // upstream via the prompt (beat count / direction), not here.
-
   return {
     dialogue: validDialogue,
     systemEvents: validEvents,
@@ -450,7 +394,6 @@ export function parseAndValidateBatch(
 ): LlmBatchSceneResponse {
   const data = repairAndParse(raw);
 
-  // If the response has a `scenes` array, parse each scene individually
   if (Array.isArray(data.scenes)) {
     const scenes: LlmSceneResponse[] = [];
     for (const sceneData of data.scenes as Array<Record<string, unknown>>) {
@@ -460,7 +403,6 @@ export function parseAndValidateBatch(
           parseAndValidate(sceneJson, validAgentIds, requiredSpeakerIds),
         );
       } catch {
-        // Skip malformed scenes in the batch
         continue;
       }
     }
@@ -470,7 +412,6 @@ export function parseAndValidateBatch(
     return { scenes };
   }
 
-  // Fallback: treat as a single scene response
   const single = parseAndValidate(raw, validAgentIds, requiredSpeakerIds);
   return { scenes: [single] };
 }

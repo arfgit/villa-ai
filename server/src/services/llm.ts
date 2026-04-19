@@ -13,12 +13,6 @@ import { generateSceneFromOllama, generateBatchFromOllama } from "./ollama.js";
 
 export type LlmProvider = "anthropic" | "gemini" | "ollama";
 
-// Runtime override for the dev-only provider toggle. When set via
-// setRuntimeProvider() (see routes/dev.ts), getProvider() returns this
-// instead of reading the env. Null → fall through to env / default.
-// Resets to null on every server restart by design — the UI toggle is
-// for quick in-session A/B testing, not persistent config. Persistent
-// changes belong in .env.
 let runtimeProviderOverride: LlmProvider | null = null;
 
 export function setRuntimeProvider(provider: LlmProvider | null): void {
@@ -38,28 +32,16 @@ export function getProvider(): LlmProvider {
     explicit === "gemini"
   )
     return explicit;
-  // Prod default priority: anthropic ONLY if the key is actually bound.
-  // Firebase Functions deploys that haven't been updated to also bind
-  // ANTHROPIC_API_KEY would otherwise 502 on every scene gen, because
-  // the Anthropic client throws on missing-key BEFORE the Gemini fallback
-  // gets a chance to run (missing-key isn't a fallback-triggering error
-  // class — it's a config bug). Fall through to gemini if only that key
-  // is bound. Dev default stays ollama (free, local).
+
   if (process.env.NODE_ENV === "production") {
     if (process.env.ANTHROPIC_API_KEY) return "anthropic";
     if (process.env.GEMINI_API_KEY) return "gemini";
-    // Neither configured — still return "anthropic" so the error message
-    // the client sees ("ANTHROPIC_API_KEY not set") is actionable.
+
     return "anthropic";
   }
   return "ollama";
 }
 
-// Anthropic-as-primary gets a Gemini safety net: if Haiku 4.5 is out of
-// credits, rate-limited, or overloaded, we transparently retry on Gemini
-// so the app keeps working. Ollama and Gemini primaries run solo — no
-// fallback chain — because their failure modes (local Ollama down,
-// Gemini free-tier exhausted) aren't improved by reaching for the other.
 function getProviderChain(): LlmProvider[] {
   const primary = getProvider();
   if (primary === "anthropic" && process.env.GEMINI_API_KEY) {
@@ -118,15 +100,6 @@ async function runBatch(
   return generateBatchFromGemini(prompt, validAgentIds, requiredSpeakerIds);
 }
 
-// Generic fallback runner. Iterates the provider chain, transparently
-// retrying on quota/credit/overload errors from Anthropic-as-primary
-// (see isFallbackTriggeringError for the exact set). Parse errors and
-// schema validation failures deliberately do NOT trip the fallback —
-// those are bugs in the prompt/response, not provider problems, so
-// retrying on Gemini would just burn budget on the same bad output.
-// Extracted from the scene and batch paths to keep the retry/fallback
-// logic in one place — the two public entry points only differ in
-// their run function and the default error message.
 async function runWithFallback<T>(
   run: (provider: LlmProvider) => Promise<T>,
   fallbackFailedError: string,

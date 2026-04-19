@@ -6,9 +6,6 @@ import {
   type LlmProvider,
 } from "../services/llm.js";
 
-// Dev-only endpoints. Mounted from app.ts behind a NODE_ENV !== "production"
-// gate — the toggle state is transient (cleared on server restart) and
-// would be a foot-gun in production (one user's toggle affects everyone).
 export const devRouter = Router();
 
 const VALID_PROVIDERS: readonly LlmProvider[] = [
@@ -23,8 +20,6 @@ function isValidProvider(v: unknown): v is LlmProvider {
   );
 }
 
-// GET /api/dev/provider — returns current effective provider + whether
-// it's coming from a runtime override or from env / default.
 devRouter.get("/provider", (_req, res) => {
   res.json({
     effective: getProvider(),
@@ -33,8 +28,6 @@ devRouter.get("/provider", (_req, res) => {
   });
 });
 
-// POST /api/dev/provider — set or clear the runtime override.
-// Body: { provider: "anthropic" | "gemini" | "ollama" | null }
 devRouter.post("/provider", (req, res) => {
   const { provider } = (req.body ?? {}) as { provider?: unknown };
   if (provider === null) {

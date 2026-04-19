@@ -1,8 +1,3 @@
-// Voice examples for prompt differentiation — used by buildScenePrompt to
-// seed each agent's section with a concrete line in their style. This is
-// the ONLY live export in this file; the procedural-cast generation
-// functions live client-side (client/src/lib/castGenerator.ts) since
-// cast generation happens before any server call.
 export const VOICE_EXAMPLES: Record<string, string> = {
   "loud and unapologetic":
     "Absolutely NOT, are you having a LAUGH? That's bare disrespectful, innit!",

@@ -85,9 +85,6 @@ export async function generateSceneFromGemini(
         const isQuotaError =
           msg.includes("429") || lower.includes("resource_exhausted");
         if (isQuotaError) {
-          // Project-wide / free-tier quotas apply across ALL models on the
-          // same API key, so burning through the fallback chain just triples
-          // the latency before surfacing the same error. Short-circuit.
           const isProjectWideQuota =
             lower.includes("free tier") ||
             lower.includes("free_tier") ||
@@ -98,7 +95,6 @@ export async function generateSceneFromGemini(
             console.error("[gemini] full rate-limit error:", err);
             throw new Error(describeRateLimit(msg));
           }
-          // Per-model quota — try the next model.
           break;
         }
         const isParseErr =

@@ -3,10 +3,6 @@ import { embed } from "../services/embeddings.js";
 
 export const embeddingsRouter = Router();
 
-// POST /api/embeddings — proxy to the server's embeddings provider.
-// Kept server-side because the client would otherwise have to reach an
-// Ollama host directly, which doesn't work in Firebase Hosting (no
-// /ollama rewrite) and bypasses CORS configuration.
 embeddingsRouter.post("/", async (req, res) => {
   try {
     const { text } = req.body ?? {};

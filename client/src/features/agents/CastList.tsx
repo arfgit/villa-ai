@@ -18,10 +18,7 @@ interface Props {
   winnerCouple: Couple | null;
   locations: Record<string, SceneType>;
   currentSceneType?: SceneType;
-  // Ordinal of the currently-playing recouple (1 = the first coupling,
-  // 2+ = subsequent recouples). Used ONLY to switch the location label
-  // from "Recoupling" → "First Coupling" when cast members are shown at
-  // the opening ceremony. Undefined for non-recouple scenes.
+
   recoupleOrdinal?: number;
   brains: Record<string, AgentBrain>;
 }
@@ -98,10 +95,7 @@ export default function CastList({
           const emotion = eliminated ? "sad" : getEmotion(agent.id);
 
           const location = locations[agent.id];
-          // Use getSceneLabel so a cast member shown at the first coupling
-          // displays "First Coupling" instead of the default "Recoupling".
-          // Only pass recoupleOrdinal when the agent's location is the
-          // currently-playing recouple scene.
+
           const locationLabel = location
             ? getSceneLabel(
                 location,

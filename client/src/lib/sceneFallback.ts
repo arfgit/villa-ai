@@ -1,32 +1,6 @@
-// Templated fallback scene.
-//
-// The batch prefetcher realizes each outline against a working-state
-// simulator. If the LLM fails twice on a given outline (rate limited,
-// malformed JSON, whatever), we don't abandon the whole batch tail —
-// that would cascade into 4 empty queue slots and a long "catching up"
-// pause. Instead, we emit a scripted interstitial: a short, neutral
-// scene that advances time without inventing plot. The LLM retries on
-// the NEXT batch cycle from fresh state, so the fallback is a one-time
-// papering-over, not a permanent regression.
-//
-// Design rules for the template:
-//   - No system events (no attraction deltas, no couple changes). The
-//     LLM couldn't write this scene; a template can't either without
-//     risking bad relationship data.
-//   - No emotion updates. Same reason.
-//   - 2-3 short lines max. Short enough to feel like a beat, not a
-//     scene.
-//   - Lines MUST reference real participant names (not "[Name]")
-//     because the prompt rules everywhere say so and consumers assume it.
-//   - Neutral emotion. A fallback emits "neutral" across the board so
-//     the next prompt doesn't react to fake high drama.
-
 import type { Agent, LlmSceneResponse } from "@villa-ai/shared";
 import type { SceneOutline } from "@villa-ai/shared";
 
-// Short, context-free line templates. Picked deterministically by
-// (sceneType, participantCount) so repeated fallbacks don't produce the
-// same literal dialogue over and over.
 const AMBIENT_BEATS: Record<string, string[]> = {
   firepit: [
     "needed a second to just sit with my thoughts.",
@@ -80,9 +54,6 @@ export function createFallbackScene(
     AMBIENT_BEATS[outline.type as keyof typeof AMBIENT_BEATS] ??
     AMBIENT_BEATS.default!;
 
-  // Prefer the outline's listed participants, fall back to the first 2
-  // active cast members. Bounded to 2 speakers so the fallback scene
-  // reads like a short exchange, not a group hang.
   const speakerIds = outline.participants.slice(0, 2);
   if (speakerIds.length < 2) {
     for (const agent of cast) {
@@ -92,8 +63,6 @@ export function createFallbackScene(
     }
   }
 
-  // Deterministic beat pick by outline sequence so two adjacent
-  // fallbacks don't accidentally use the same first line.
   const beatStart = Math.max(0, outline.sequence) % beats.length;
 
   const dialogue = speakerIds.slice(0, 2).map((agentId, idx) => {

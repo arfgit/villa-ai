@@ -14,16 +14,9 @@ async function loadTrainingArchive(): Promise<SeasonSummary[]> {
   }
 }
 
-// The past-seasons block is the same for every scene in the same session
-// (seasons only change when a new one completes, which is rare compared to
-// scene-generation frequency). Cache it so every prompt build isn't paying
-// a Firestore round-trip for identical data.
 const PAST_SEASONS_TTL_MS = 60_000;
 let pastSeasonsCache: { block: string; expiry: number } | null = null;
-// In-flight fetch shared by concurrent callers. Without this, five parallel
-// prefetch scenes arriving at a cold cache would each fire their own
-// Firestore query. With it, the first call wins the race and the other
-// four await the same promise.
+
 let pastSeasonsInFlight: Promise<string> | null = null;
 
 export async function buildPastSeasonsPromptBlock(): Promise<string> {

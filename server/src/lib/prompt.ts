@@ -12,8 +12,6 @@ import { SCENE_LABELS } from "./environments.js";
 import { buildPastSeasonsPromptBlock } from "./trainingData.js";
 import { VOICE_EXAMPLES } from "./castGenerator.js";
 
-// Re-export for callers that want the prompt-specific shapes without
-// reaching into shared/ directly.
 export type {
   BuildArgs,
   RecouplePlanStep,
@@ -21,9 +19,6 @@ export type {
   MinigameDefinition,
 } from "@villa-ai/shared";
 
-// Sanitize any string flowing into the LLM prompt body. Collapses whitespace,
-// strips control chars, and caps length so a crafted cast bio or dialogue line
-// can't escape its section and hijack the system rules or JSON schema.
 function clip(value: string | undefined, maxLen: number): string {
   if (!value) return "";
   const flat = value
@@ -33,13 +28,6 @@ function clip(value: string | undefined, maxLen: number): string {
   return flat.length > maxLen ? flat.slice(0, maxLen - 1) + "…" : flat;
 }
 
-// Popularity-band thresholds are imported from shared/types.ts — same source
-// the client gravity engine uses. No local duplication, no drift risk.
-
-// Renders the "VIEWER VIBES" block for the prompt, listing favorites (>= 70)
-// and targets (<= 30). Returns null when sentiment is missing entirely or
-// every agent sits in the dead band — callers skip the header so the prompt
-// doesn't spend tokens on "nobody notable."
 function buildPopularityBlockForPrompt(
   sentiment: Record<string, number> | undefined,
   cast: Agent[],
@@ -67,19 +55,11 @@ function buildPopularityBlockForPrompt(
   return lines.join("\n");
 }
 
-// Turn the SceneContext (produced by sceneEngine.ts) into a prompt section.
-// Replaces the old SCENE ARC / YELLING / CHARACTER-DRIVEN lecture blocks
-// with structured per-beat direction so the LLM follows a specific shape
-// instead of a prose brief.
 function renderSceneContextBlock(
   ctx: SceneContext | undefined,
   cast: Agent[],
 ): string {
-  if (!ctx) return ""; // scene engine disabled or upstream bailed; let other prompt sections carry it
-  // Names flow into the highest-priority prompt section, so clip them the same
-  // way we clip bios/dialogue — if a session was ever restored from untrusted
-  // storage, a crafted name must not be able to inject instructions here.
-  const nameOf = (id: string | undefined) =>
+  if (!ctx) return "";  const nameOf = (id: string | undefined) =>
     clip(id ? (cast.find((a) => a.id === id)?.name ?? id) : "", 60);
   const tensionLabel =
     ctx.tension >= 70 ? "HIGH" : ctx.tension >= 40 ? "medium" : "low";
@@ -102,8 +82,6 @@ function renderSceneContextBlock(
     .map((b, idx) => renderBeat(b, idx, nameOf))
     .join("\n");
 
-  // CAPS/yelling directive is now conditional: only emit when the plan
-  // includes a loud beat, and only apply to that specific beat index.
   const loudBeatIndices = ctx.plannedBeats
     .map((b, idx) => (b.loud ? idx : -1))
     .filter((i) => i >= 0);
@@ -189,14 +167,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   const allCast =
     casaAmorCast && casaAmorCast.length > 0 ? [...cast, ...casaAmorCast] : cast;
 
-  // NO style samples in the cast block. Every previous attempt to include
-  // them (as `example line:` or `style sample:`) resulted in the LLM
-  // copying the literal string as a dialogue line — Zion kept getting
-  // "Wait, wait, WAIT. Did she just say that?" because that was the
-  // "dramatic AF" sample shown in quotes on his row. The `voice:`
-  // description field below carries the same signal without giving the
-  // model any ready-made string to paste. Also saves ~240 tokens per
-  // prompt (8 cast × 30 tokens/sample).
   const castBlock = allCast
     .map((a) => {
       return `- ${a.id} (${clip(a.name, 60)}, ${a.age}) [${clip(a.archetype, 60)}]\n  voice: ${clip(a.voice, 160)}\n  bio: ${clip(a.bio, 220)}\n  traits: ${clip(a.personality, 200)}`;
@@ -234,7 +204,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
         `${fromName} is jealous of ${toName} — the host can exploit this`,
       );
     }
-    // Compatibility mismatch — high attraction but low compatibility = ticking time bomb
     for (const c of couples) {
       const ab = relationships.find((r) => r.fromId === c.a && r.toId === c.b);
       const ba = relationships.find((r) => r.fromId === c.b && r.toId === c.a);
@@ -282,10 +251,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   const allBombshells =
     arrivingBombshells ?? (arrivingBombshell ? [arrivingBombshell] : []);
 
-  // Flattened list of every id the validator will accept. We put this in
-  // the prompt so the LLM never guesses at ids from the name field —
-  // models love to write "Omar" as agentId when given a block that shows
-  // both id and name, and the validator throws those lines away silently.
   const allValidIds: string[] = [
     ...allCast.map((a) => a.id),
     ...allBombshells.map((a) => a.id),
@@ -293,28 +258,13 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   ];
   const validIdsList = allValidIds.join(", ");
 
-  // When the scene requires specific speakers (intros, first coupling,
-  // ensemble scenes), spell them out at the end of the ID block so the LLM
-  // can't silently skip anyone. The prompt's scene-direction section
-  // already says "every contestant must speak" in English — this is the
-  // enforcement version.
   const requiredSpeakers: string[] = (() => {
     if (isIntroduction) {
-      // Host MCs the opener — include them so the LLM can't silently drop
-      // the host's welcome monologue.
       return host
         ? [...allCast.map((a) => a.id), host.id]
         : allCast.map((a) => a.id);
     }
     if (forcedParticipants) return forcedParticipants;
-    // Ensemble ceremony scenes need EVERY active cast member to get a line
-    // even when forcedParticipants isn't explicitly set. For recouples and
-    // the grand finale, silently skipping half the cast (what happened
-    // before this fallback) reads as "the villa has half as many people
-    // as it actually does". Challenge/minigame/bombshell have similar
-    // ensemble expectations, and all of them need the host — the host
-    // runs the ceremony, announces the rules, names the pairings. Without
-    // the host in the required list, the LLM drops the host entirely.
     if (
       sceneType === "recouple" ||
       sceneType === "grand_finale" ||
@@ -354,11 +304,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
     )
     .join("\n");
 
-  // VIEWER VIBES block: inject live-chat favorites and targets so the LLM
-  // can have the cast subconsciously react to popularity (feels like
-  // producers dropping hints, phone check-ins). Only emit when at least one
-  // agent is outside the 30-70 dead band — "everyone feels average" adds
-  // zero signal and costs tokens.
   const popularityBlock = buildPopularityBlockForPrompt(
     viewerSentiment,
     allCast,
@@ -402,11 +347,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   const brainParticipants = forcedParticipants
     ? castWithArrivals.filter((c) => forcedParticipants.includes(c.id))
     : castWithArrivals;
-  // Only include a brain section for participants who actually HAVE
-  // something (a memory, a goal, or a policy). Early scenes have none of
-  // these and the default "no specific memories yet" block adds ~50 tokens
-  // per contestant for zero value — that's ~400+ wasted tokens on scene 1
-  // which directly slows generation.
   const brainEntries = brainParticipants
     .map((p) => {
       const goal = clip(agentGoals?.[p.id], 200);
@@ -456,11 +396,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   } else if (sceneType === "challenge") {
     participantsClause = `MUST include ALL ${cast.length} active contestants. Every islander in the villa competes in this challenge — no one sits out. The host briefly narrates the rules at the start.`;
   } else if (sceneType === "recouple") {
-    // Recoupling ceremonies — including the First Coupling — require the
-    // whole villa on stage. The host runs the ceremony, and every active
-    // contestant must make a choice on camera. Before this branch existed,
-    // the fallback clause told the LLM to pick 3-5 contestants, which
-    // caused "first coupling missing cast + silent host" bugs.
     const allNames = cast.map((c) => c.name).join(", ");
     participantsClause = `MUST include ALL ${cast.length} active contestants AND the host. The host opens and closes the ceremony. EVERY contestant must speak at least one line — they are either declaring their choice, being chosen, or reacting on camera. Required speakers: ${allNames}.`;
   } else if (sceneType === "grand_finale") {
@@ -475,11 +410,6 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
 
   let direction: string;
   if (isIntroduction) {
-    // Introductions scene — host-led, cast intros, light banter.
-    // This prompt is deliberately tight: the opener sets the tone for
-    // the whole season, and noise here (drama, flirting, couplings) makes
-    // later scenes feel repetitive. Tune the beat counts/banter level
-    // here if you want the opener to feel more/less chatty.
     direction = `SEASON OPENER — "INTRODUCTIONS" scene. This scene is an ACTUAL round of self-introductions where each contestant says WHO THEY ARE out loud. It is NOT a dramatic hang-out scene. Do not skip the self-intros in favor of drama — the self-intros ARE the scene.
 
 ORDER OF EVENTS:
@@ -542,13 +472,6 @@ STRUCTURE:
 
 NO other contestants. NO host. Focus entirely on THEM and THEIR current situation. Reference brain memories of prior beats between them. Emit attraction_change and trust_change reflecting how the conversation actually went.`;
   } else if (sceneType === "recouple" && !isFinale) {
-    // First recouple of the season = "First Coupling". Nobody's paired yet,
-    // nobody goes home — the vibe is "pick your partner" not "one of you is
-    // leaving tonight". Different opener + different script framing. The
-    // caller passes isFirstCoupling explicitly (see BuildArgs) because
-    // recentScenes here is a windowed slice and can't distinguish scene-2
-    // first-coupling from a late-season recouple whose last recouple is
-    // outside the window.
     const isFirstCoupling = args.isFirstCoupling === true;
     const scriptBlock =
       recoupleScript && recoupleScript.steps.length > 0
@@ -583,11 +506,6 @@ RULES:
 - Every pick MUST produce a couple_formed system event.
 - DO NOT emit couple_broken events (no couples exist yet to break).`;
     } else {
-      // Inject the CURRENT couple count into the host's opening line. Without
-      // this, the LLM pattern-matches "recoupling" against its training data
-      // and hallucinates lines like "3 strong couples stand before me" even
-      // when only 2 remain — because show transcripts from full seasons use
-      // that phrasing. We force-correct by stating the real number inline.
       const currentCoupleCount = couples.length;
       const coupleCountPhrase =
         currentCoupleCount === 1
@@ -786,11 +704,6 @@ ${grandFinaleRanking ?? "(no chat data)"}
 
 CRITICAL: This is the LAST scene of the season. No cliffhanger. The narrative MUST land — the winners are crowned by the public vote. Follow the ranking above: the top-ranked couple in the live-chat data is the winner.`;
   } else if (couples.length === 0 && !isIntroduction) {
-    // Pre-first-coupling mingling phase — scenes 1 and 2 on the Love Island
-    // calendar. Cast has just met at intro; they're hanging out for the
-    // first time. No couples exist yet. The point of these scenes is
-    // BUILDING ATTRACTION before coupling, not drama. Different direction
-    // from the generic chill scene below.
     direction = `MINGLING PHASE — scene ${sceneNumber}. The cast just met at introductions. No one is coupled up yet. The vibe is first-impressions-turning-into-real-chemistry: testing the waters, light flirting, discovering who you vibe with, shared jokes that hint at potential pairings.
 
 GUIDANCE:
@@ -831,12 +744,7 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
     ...allBombshells.map((b) => b.id),
   ];
 
-  // Scenes were coming out too sparse — one line per contestant, no arc.
-  // Push the LLM to deliver real back-and-forth with multiple beats per agent.
   const minPerContestant = 2;
-  // Intro line count = host open (1-2) + N intros + banter (2-4) + host close (1-2).
-  // Banter scales with cast size so a 4-person cast doesn't feel over-crowded
-  // and a 10-person cast still gets meaningful cross-talk.
   const introBanterCount = Math.max(
     2,
     Math.min(4, Math.floor(cast.length / 2)),
@@ -862,11 +770,7 @@ WILDCARD DIRECTIVE FOR THIS SCENE: ${wildcard}`;
                     ? `12 to 18 dialogue lines. Loyal vs. tempted islanders MUST clash on screen. Most contestants speak ${minPerContestant}+ times.`
                     : `10 to 14 dialogue lines. Most active contestants speak ${minPerContestant}+ times — one beat of setup, one of escalation. DO NOT deliver single drive-by lines; build a conversation.`;
 
-  // Scene-type-specific anti-patterns. Kept global so every branch inherits the
-  // same forbidden moves — prior fix rounds discovered the LLM would drift back
-  // into introductions / off-focus drama when a single branch relaxed a rule.
   const antiPatterns: string[] = [
-    // Every scene regardless of type.
     'NO emoji leaders. Dialogue lines must start with a letter or a "*action*" marker, NEVER with an emoji/pictograph like "🕉" or "🤓". The emojiFace on a character is a render concern, not dialogue content.',
     'NO decorative separators. Don\'t insert "¦", "|", "—" or similar as line fillers. Use normal prose punctuation only.',
     'NO whole-line asterisk wrapping. Writing a dialogue line as "*I\'m so nervous about this...*" renders as italic narration and looks like a stage direction, not speech. Dialogue is the words the character SAYS OUT LOUD — write it plain: "I\'m so nervous about this...". Use the separate `action` JSON field for physical actions, or brief inline *action* markers like "*sighs* — I think it\'s over." (action followed by the actual spoken line).',

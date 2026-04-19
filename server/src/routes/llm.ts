@@ -5,9 +5,6 @@ import { coerceBuildArgs } from "../lib/buildArgsSchema.js";
 
 export const llmRouter = Router();
 
-// Reject arrays that aren't just short strings — agentIds get forwarded into
-// Set.has() comparisons + interpolated into log lines, so we don't want
-// objects, numbers, or multi-KB strings sneaking through the trust boundary.
 function isValidAgentIdArray(raw: unknown): raw is string[] {
   if (!Array.isArray(raw) || raw.length === 0 || raw.length > 50) return false;
   return raw.every(
@@ -15,18 +12,7 @@ function isValidAgentIdArray(raw: unknown): raw is string[] {
   );
 }
 
-// Whitelist LLM errors that are safe to forward to the client verbatim —
-// rate-limit messages are actionable (tells the user to top up / wait) and
-// don't leak internals. Everything else gets a generic message; the full
-// error is still logged server-side for debugging.
 function sanitizeErrorMessage(msg: string): string {
-  // In non-production (local dev), always pass the real error through.
-  // The sanitize-everything default is a prod safety — we don't want
-  // internal details reaching random clients — but in dev it just
-  // hides the information the developer needs to debug. NODE_ENV is
-  // unset for most local `npm run dev` flows so this check defaults
-  // to "pass through" locally and "hide" on Cloud Functions deploys
-  // (which set NODE_ENV=production automatically).
   if (process.env.NODE_ENV !== "production") {
     return msg;
   }
@@ -39,24 +25,18 @@ function sanitizeErrorMessage(msg: string): string {
     lower.includes("prepayment") ||
     msg.includes("429");
   if (isRateLimit) return msg;
-  // Ollama connection errors are actionable dev-setup issues, not internal
-  // leaks — pass them through so the user knows to start ollama instead of
-  // staring at "see server logs for details".
+
   const isOllamaConnection =
     lower.includes("could not reach ollama") ||
     lower.includes("ollama model") ||
     lower.includes("connect econnrefused") ||
     lower.includes("fetch failed");
   if (isOllamaConnection) return msg;
-  // Gemini missing-key errors are also user-actionable.
+
   if (lower.includes("gemini_api_key not set")) return msg;
   return "LLM generation failed — see server logs for details";
 }
 
-// POST /api/llm/generate — build the prompt server-side from structured
-// BuildArgs and call the LLM. Clients send game state + scene intent,
-// NOT a pre-assembled prompt string — that's the injection surface we
-// closed by moving assembly here.
 llmRouter.post("/generate", async (req, res) => {
   const reqStartedAt = Date.now();
   try {
@@ -101,9 +81,6 @@ llmRouter.post("/generate", async (req, res) => {
   }
 });
 
-// POST /api/llm/batch — batch-generate multiple scenes. Same BuildArgs
-// contract as /generate; batch-mode instructions are baked into the
-// prompt builder when isBatch is set.
 llmRouter.post("/batch", async (req, res) => {
   try {
     const { buildArgs, validAgentIds, requiredSpeakerIds } = req.body ?? {};

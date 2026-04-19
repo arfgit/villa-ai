@@ -8,16 +8,9 @@ import { wisdomRouter } from "./routes/wisdom.js";
 import { embeddingsRouter } from "./routes/embeddings.js";
 import { devRouter } from "./routes/dev.js";
 
-// Build the Express app. Separated from the process entry point (index.ts /
-// functions.ts) so the same app can run as a local http.Server (app.listen)
-// and as a Cloud Functions v2 onRequest handler.
 export function createApp(): Express {
   const app = express();
 
-  // CORS: allow all in dev, but require an explicit CORS_ORIGIN in prod so
-  // we never ship a wide-open API by accident. Firebase Hosting rewrites
-  // /api/** to the function on the same origin anyway, so the prod value
-  // is typically the Hosting domain (e.g. https://villa-ai-9ff17.web.app).
   const corsOriginEnv = process.env.CORS_ORIGIN;
   if (process.env.NODE_ENV === "production" && !corsOriginEnv) {
     throw new Error(
@@ -36,9 +29,7 @@ export function createApp(): Express {
   app.use("/api/llm", llmRouter);
   app.use("/api/wisdom", wisdomRouter);
   app.use("/api/embeddings", embeddingsRouter);
-  // Dev-only: runtime LLM provider toggle. Gated behind NODE_ENV so a
-  // production deploy doesn't expose mutation of global server state to
-  // any UUID holder.
+
   if (process.env.NODE_ENV !== "production") {
     app.use("/api/dev", devRouter);
   }
