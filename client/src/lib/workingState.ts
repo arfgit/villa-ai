@@ -25,6 +25,7 @@ import type {
   Relationship,
   Scene,
   SceneType,
+  SystemEvent,
 } from "@villa-ai/shared";
 
 export interface WorkingState {
@@ -119,9 +120,19 @@ export function applyRealizedScene(
   return state;
 }
 
+// Structural subset of SystemEvent / LlmSystemEvent that the working-state
+// reducer reads. Accepts both raw LLM output (no `id`/`metric`) and committed
+// gravity events (with `metric`). Mirrors the ReducerEvent type in
+// useVillaStore.ts — the two reducers must stay in lockstep per the module's
+// "working state mirrors real commit" invariant above.
+type WorkingReducerEvent = Pick<
+  SystemEvent,
+  "type" | "fromId" | "toId" | "delta" | "metric"
+>;
+
 function applyEventToState(
   state: WorkingState,
-  event: LlmSceneResponse["systemEvents"][number],
+  event: WorkingReducerEvent,
 ): void {
   const { type, fromId, toId, delta } = event;
 
@@ -143,6 +154,24 @@ function applyEventToState(
         next.jealousy = clampMetric(r.jealousy + delta);
       if (type === "compatibility_change")
         next.compatibility = clampMetric(r.compatibility + delta);
+      return next;
+    });
+    return;
+  }
+
+  // Gravity events (gravity_shift / gravity_threshold) dispatch on `metric`
+  // rather than `type`. These are synthesized at commit time by the social
+  // gravity engine, not emitted by the LLM — but handling them here keeps
+  // the working-state reducer at parity with the store's `applyEventList`
+  // in case a committed scene's events ever flow through this path.
+  if (type === "gravity_shift" || type === "gravity_threshold") {
+    if (!fromId || !toId || typeof delta !== "number" || !event.metric) return;
+    state.relationships = state.relationships.map((r) => {
+      if (r.fromId !== fromId || r.toId !== toId) return r;
+      const next = { ...r };
+      if (event.metric === "trust") next.trust = clampMetric(r.trust + delta);
+      if (event.metric === "attraction")
+        next.attraction = clampMetric(r.attraction + delta);
       return next;
     });
     return;

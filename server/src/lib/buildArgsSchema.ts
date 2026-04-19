@@ -351,7 +351,32 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   if (raw.outline !== undefined && !isValidSceneOutline(raw.outline)) {
     return null;
   }
+  if (
+    raw.viewerSentiment !== undefined &&
+    !isValidViewerSentiment(raw.viewerSentiment)
+  ) {
+    return null;
+  }
   return raw as unknown as BuildArgs;
+}
+
+// Shape check for the opt-in viewer-sentiment map the client passes so the
+// prompt can inject a "VIEWER VIBES" block. Caps entry count and clamps each
+// value into a sane band — a crafted payload with 10k entries or negative
+// sentiment would crash neither the builder nor the LLM, but it would waste
+// tokens. Clamping invalid values would mask client bugs; we reject instead.
+function isValidViewerSentiment(v: unknown): boolean {
+  if (!isObj(v)) return false;
+  const entries = Object.entries(v);
+  if (entries.length > MAX_CAST) return false;
+  for (const [key, value] of entries) {
+    if (typeof key !== "string" || key.length === 0 || key.length > 64) {
+      return false;
+    }
+    if (typeof value !== "number" || !Number.isFinite(value)) return false;
+    if (value < 0 || value > 100) return false;
+  }
+  return true;
 }
 
 function isValidSceneOutline(v: unknown): boolean {

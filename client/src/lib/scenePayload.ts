@@ -19,18 +19,47 @@
 
 import type { DialogueLine, Scene, SystemEvent } from "@villa-ai/shared";
 
-// These are the 4 systemEvent types the prompt's recent-block filter
+// These are the systemEvent types the prompt's recent-block filter
 // keeps. Matching the filter client-side lets us drop the other deltas
 // entirely (attraction_change, trust_change, jealousy_spike,
-// compatibility_change) from the payload, since those are only used
-// at commit time by the store's relationship reducer — NOT by the
-// prompt when this scene is in the `recentScenes` window.
-const RECENT_EVENT_TYPES = new Set<SystemEvent["type"]>([
+// compatibility_change, gravity_shift, gravity_threshold) from the payload,
+// since those are only used at commit time by the store's relationship
+// reducer — NOT by the prompt when this scene is in the `recentScenes`
+// window. The `satisfies` clause is a compile-time guard: if a future
+// event type is accidentally added here that shouldn't be in recent-block
+// context (like gravity_*), the TS check below will fail.
+const KEPT_EVENT_TYPES = [
   "couple_formed",
   "couple_broken",
   "minigame_win",
   "challenge_win",
-]);
+] as const satisfies readonly SystemEvent["type"][];
+
+// Explicit list of types that MUST NOT appear in recent-block payloads.
+// Maintained as a positive rejection list so contributors notice the
+// exclusion when adding new event types.
+type ExcludedFromRecentBlock =
+  | "trust_change"
+  | "attraction_change"
+  | "jealousy_spike"
+  | "compatibility_change"
+  | "gravity_shift"
+  | "gravity_threshold";
+type AssertDisjoint =
+  Extract<
+    (typeof KEPT_EVENT_TYPES)[number],
+    ExcludedFromRecentBlock
+  > extends never
+    ? true
+    : never;
+// Compile-time evaluation: if a KEPT entry leaks into ExcludedFromRecentBlock,
+// `AssertDisjoint` resolves to `never` and the `true` annotation errors. The
+// `void` reference keeps the assertion a no-op at runtime while still gating
+// the type check — without it, TS6133 flags the const as unused.
+const _assertKeptIsDisjoint: AssertDisjoint = true;
+void _assertKeptIsDisjoint;
+
+const RECENT_EVENT_TYPES = new Set<SystemEvent["type"]>(KEPT_EVENT_TYPES);
 
 // Trim dialogue to the same shape the prompt uses: first 2 lines with
 // substantive content. Matches server/src/lib/prompt.ts recentBlock.

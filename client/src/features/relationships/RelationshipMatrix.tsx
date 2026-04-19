@@ -1,5 +1,10 @@
 import clsx from "clsx";
-import type { Agent, Relationship, RelationshipMetric } from "@villa-ai/shared";
+import type {
+  Agent,
+  Relationship,
+  RelationshipMetric,
+  Scene,
+} from "@villa-ai/shared";
 import Tooltip from "@/components/ui/Tooltip";
 import { baseCompatibility } from "@/lib/castGenerator";
 
@@ -16,6 +21,17 @@ interface Props {
   // popularity, which matters for the finale tiebreak and the public
   // vote weighting.
   couples?: Array<{ a: string; b: string }>;
+  // Last few committed scenes. The matrix uses their system events to
+  // mark cells that were recently nudged by social gravity — so the
+  // closed popularity↔relationship loop is visible at the cell level
+  // without adding a new metric toggle (GRAVITY would be a meta-metric,
+  // not a peer). Pass `episode.scenes.slice(-3)` in App.tsx.
+  recentScenes?: Scene[];
+}
+
+interface RecentPull {
+  trust: number;
+  attraction: number;
 }
 
 const METRIC_LABELS: Record<RelationshipMetric, string> = {
@@ -116,6 +132,7 @@ export default function RelationshipMatrix({
   eliminatedIds = [],
   viewerSentiment = {},
   couples = [],
+  recentScenes = [],
 }: Props) {
   const activeCast = cast.filter((c) => !eliminatedIds.includes(c.id));
   const displayCast = activeCast;
@@ -129,6 +146,61 @@ export default function RelationshipMatrix({
     if (value >= 40) return "bg-villa-pink/10";
     if (value >= 20) return "bg-villa-dim/20";
     return "";
+  }
+
+  // Collapse gravity events from the last few committed scenes into a
+  // per-pair pull summary. Used purely for rendering — the actual deltas
+  // were already applied to `relationships` at commit time. This is the
+  // visual trace: "this cell got nudged by popularity recently."
+  const recentGravity: Record<string, RecentPull> = {};
+  for (const scene of recentScenes) {
+    for (const ev of scene.systemEvents) {
+      if (ev.type !== "gravity_shift" && ev.type !== "gravity_threshold") {
+        continue;
+      }
+      if (!ev.fromId || !ev.toId || typeof ev.delta !== "number") continue;
+      if (!ev.metric) continue;
+      const key = `${ev.fromId}->${ev.toId}`;
+      const prior = recentGravity[key] ?? { trust: 0, attraction: 0 };
+      if (ev.metric === "trust") prior.trust += ev.delta;
+      if (ev.metric === "attraction") prior.attraction += ev.delta;
+      recentGravity[key] = prior;
+    }
+  }
+
+  function recentPullSummary(pull: RecentPull): string {
+    const parts: string[] = [];
+    if (Math.abs(pull.trust) >= 0.1) {
+      parts.push(
+        `${pull.trust > 0 ? "+" : ""}${pull.trust.toFixed(1)} trust from popularity`,
+      );
+    }
+    if (Math.abs(pull.attraction) >= 0.1) {
+      parts.push(
+        `${pull.attraction > 0 ? "+" : ""}${pull.attraction.toFixed(1)} attraction from popularity`,
+      );
+    }
+    return parts.length > 0 ? parts.join(", ") : "";
+  }
+
+  function gravityAccent(
+    pull: RecentPull | undefined,
+    activeMetric: RelationshipMetric,
+  ): string {
+    if (!pull) return "";
+    // Only surface the accent when it's relevant to the viewer's current
+    // metric. Accent on the compatibility view for a pure-trust nudge would
+    // lie about which number moved.
+    const signed =
+      activeMetric === "trust"
+        ? pull.trust
+        : activeMetric === "attraction"
+          ? pull.attraction
+          : 0;
+    if (Math.abs(signed) < 0.1) return "";
+    return signed > 0
+      ? "border-l-2 border-villa-sun/70"
+      : "border-l-2 border-villa-love/70";
   }
 
   return (
@@ -211,19 +283,25 @@ export default function RelationshipMatrix({
                     const rel = getRel(from.id, to.id);
                     const reverse = getRel(to.id, from.id);
                     const value = rel?.[metric] ?? 0;
-                    const explanation = explainCell(
+                    const pull = recentGravity[`${from.id}->${to.id}`];
+                    const pullSummary = pull ? recentPullSummary(pull) : "";
+                    const baseExplanation = explainCell(
                       from,
                       to,
                       rel,
                       reverse,
                       metric,
                     );
+                    const explanation = pullSummary
+                      ? `${baseExplanation}\n\nRecent viewer pull (last 3 scenes): ${pullSummary}.`
+                      : baseExplanation;
                     return (
                       <Tooltip key={to.id} content={explanation} side="top">
                         <td
                           className={clsx(
                             "p-1 text-center text-villa-ink/80 tabular-nums cursor-help",
                             bgIntensity(value),
+                            gravityAccent(pull, metric),
                           )}
                         >
                           {value}
@@ -247,7 +325,7 @@ export default function RelationshipMatrix({
           <div className="text-[10px] uppercase tracking-widest text-villa-sun/80 mb-1 flex items-center justify-between">
             <span>░ popularity ░</span>
             <Tooltip
-              content="Live-chat sentiment per islander (0-100). Rises when viewers react positively to their scenes; drops on smug/angry behavior. Feeds the islander vote + grand finale tiebreak."
+              content="Live-chat sentiment per islander (0-100). Rises when viewers react positively to their scenes; drops on smug/angry behavior. High/low popularity also gently tugs other islanders toward or away from this person over multiple scenes. Feeds the islander vote + grand finale tiebreak."
               side="bottom"
             >
               <span className="text-villa-dim hover:text-villa-sun cursor-help text-[9px]">

@@ -153,6 +153,11 @@ export interface PrefetchInput {
   casaAmorState: CasaAmorState | null;
   avgDramaScore: number;
   gapToFill: number;
+  // Per-agent live-chat sentiment carried through to the prefetched prompt
+  // so batch scenes see the same "VIEWER VIBES" block the live-gen path sees.
+  // Without this, scenes 2-5 of a batch would read a flat viewerless prompt
+  // and drift out of sync with the popularity loop.
+  viewerSentiment?: Record<string, number>;
   // Called when each scene in the batch becomes ready. The store uses
   // this to append to sceneQueue INCREMENTALLY — otherwise the user sees
   // no progress during the 20-60s sequential realization window.
@@ -252,6 +257,7 @@ function buildArgsFor(
     isIntroduction: false,
     isFinale: false,
     outline,
+    viewerSentiment: input.viewerSentiment,
   };
 
   // Minigame setup derived from working state so mid-batch challenge

@@ -143,13 +143,17 @@ export default function SceneView() {
       </div>
 
       <div className="min-h-[60px] flex flex-col gap-2">
-        {isLastLine && scene.systemEvents.length > 0 && (
-          <div className="flex flex-wrap gap-1.5 animate-villa-fadein">
-            {scene.systemEvents.map((event) => (
-              <SystemChip key={event.id} event={event} />
-            ))}
-          </div>
-        )}
+        {isLastLine &&
+          scene.systemEvents.filter((e) => e.type !== "gravity_shift").length >
+            0 && (
+            <div className="flex flex-wrap gap-1.5 animate-villa-fadein">
+              {scene.systemEvents
+                .filter((event) => event.type !== "gravity_shift")
+                .map((event) => (
+                  <SystemChip key={event.id} event={event} />
+                ))}
+            </div>
+          )}
 
         {isLastLine && (
           <div className="border border-villa-sun/40 bg-villa-sun/5 p-2 text-xs animate-villa-fadein">
