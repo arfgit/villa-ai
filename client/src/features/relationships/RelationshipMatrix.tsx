@@ -14,18 +14,11 @@ interface Props {
   metric: RelationshipMetric;
   onMetricChange: (m: RelationshipMetric) => void;
   eliminatedIds?: string[];
-  // Per-agent viewer sentiment from the live chat (0-100). Drives the
-  // popularity section — feeds back into islander voting + grand finale.
+
   viewerSentiment?: Record<string, number>;
-  // Couples are used to aggregate agent-level popularity into couple
-  // popularity, which matters for the finale tiebreak and the public
-  // vote weighting.
+
   couples?: Array<{ a: string; b: string }>;
-  // Last few committed scenes. The matrix uses their system events to
-  // mark cells that were recently nudged by social gravity — so the
-  // closed popularity↔relationship loop is visible at the cell level
-  // without adding a new metric toggle (GRAVITY would be a meta-metric,
-  // not a peer). Pass `episode.scenes.slice(-3)` in App.tsx.
+
   recentScenes?: Scene[];
 }
 
@@ -59,8 +52,6 @@ const METRIC_TIPS: Record<RelationshipMetric, string> = {
     "Long-term fit between two islanders (0-100). Changes slowly. Based on archetype pairing and shared experiences. Low compatibility + high attraction = drama waiting to happen.",
 };
 
-// Band labels for a metric value. Mirrors the bgIntensity thresholds below so
-// users see consistent language between the cell shade and the tooltip.
 function bandLabel(value: number, metric: RelationshipMetric): string {
   if (metric === "jealousy") {
     if (value >= 70) return "EXPLOSIVE";
@@ -74,10 +65,6 @@ function bandLabel(value: number, metric: RelationshipMetric): string {
   return "barely there";
 }
 
-// Build the tooltip copy for a specific cell — names the pair, puts the
-// metric in context, calls out the archetype compatibility baseline, and
-// surfaces the other three metric values so a hover answers "why this
-// number" without forcing the user to toggle between tabs.
 function explainCell(
   from: Agent,
   to: Agent,
@@ -148,10 +135,6 @@ export default function RelationshipMatrix({
     return "";
   }
 
-  // Collapse gravity events from the last few committed scenes into a
-  // per-pair pull summary. Used purely for rendering — the actual deltas
-  // were already applied to `relationships` at commit time. This is the
-  // visual trace: "this cell got nudged by popularity recently."
   const recentGravity: Record<string, RecentPull> = {};
   for (const scene of recentScenes) {
     for (const ev of scene.systemEvents) {
@@ -188,9 +171,6 @@ export default function RelationshipMatrix({
     activeMetric: RelationshipMetric,
   ): string {
     if (!pull) return "";
-    // Only surface the accent when it's relevant to the viewer's current
-    // metric. Accent on the compatibility view for a pure-trust nudge would
-    // lie about which number moved.
     const signed =
       activeMetric === "trust"
         ? pull.trust

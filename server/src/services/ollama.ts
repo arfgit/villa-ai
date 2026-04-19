@@ -8,26 +8,8 @@ import type {
 const DEFAULT_HOST = "http://localhost:11434";
 const DEFAULT_MODEL = "llama3.2";
 
-// Explicit context-window size for every request. Ollama's own
-// OLLAMA_CONTEXT_LENGTH env var is only honored as a _default_ — its
-// VRAM-based auto-sizer overrides it in practice on machines with lots
-// of memory (observed: 48GB M3 Max picks default_num_ctx=262144 even
-// with OLLAMA_CONTEXT_LENGTH=8192 set). Result: the full KV cache for
-// that massive context is pre-allocated, forcing most model layers off
-// the GPU and onto CPU, which kills inference speed.
-//
-// Specifying num_ctx in the request body is client-controlled and
-// always wins. 8192 comfortably fits our prompts (~5000 tokens max)
-// and shrinks the KV cache enough that all model layers fit on GPU.
-// Override with env if you ever need more context.
 const NUM_CTX = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
 
-// How long to keep retrying a failed connection before giving up. Ollama
-// can take 5-10s to warm up the model on first request after startup;
-// during that window the runner is listening but generate requests fail
-// with "fetch failed" / ECONNREFUSED / socket reset. A handful of short
-// retries papers over that race without hiding a genuinely-down Ollama
-// for more than ~8s.
 const CONNECT_RETRY_ATTEMPTS = 4;
 const CONNECT_RETRY_DELAYS_MS = [500, 1500, 3000, 3000];
 
@@ -40,8 +22,7 @@ interface OllamaResponse {
 function isConnectionError(err: unknown): boolean {
   if (!(err instanceof Error)) return false;
   const msg = err.message.toLowerCase();
-  // Node's undici throws "fetch failed" with a .cause wrapping ECONNREFUSED
-  // or similar. Ollama during model load returns ECONNREFUSED / ECONNRESET.
+
   if (
     msg.includes("fetch failed") ||
     msg.includes("econnrefused") ||
@@ -51,7 +32,7 @@ function isConnectionError(err: unknown): boolean {
   ) {
     return true;
   }
-  // Also check `cause` one level deep — Node wraps fetch errors.
+
   const cause = (err as Error & { cause?: unknown }).cause;
   if (cause instanceof Error) {
     const causeMsg = cause.message.toLowerCase();
@@ -64,10 +45,6 @@ function isConnectionError(err: unknown): boolean {
   return false;
 }
 
-// Wrap a fetch so connection failures (Ollama runner still loading, dev
-// Ollama just restarted, etc.) are retried with short backoff. Other
-// errors — HTTP 4xx/5xx from a responsive Ollama, parse failures, etc.
-// — fall through untouched; the caller handles those.
 async function fetchWithConnectRetry(
   url: string,
   init: RequestInit,
@@ -118,9 +95,6 @@ export async function generateSceneFromOllama(
           format: "json",
           stream: false,
           options: {
-            // Temperature alone on small models leads to repetitive phrasing.
-            // Adding nucleus sampling + top_k + repetition penalty materially
-            // increases output variety, which is critical on 3B-class models.
             temperature: attempt === 0 ? 0.95 : 0.75,
             top_p: 0.95,
             top_k: 80,
@@ -178,7 +152,6 @@ export async function generateSceneFromOllama(
       );
     } catch (err) {
       lastError = err;
-      // retry once at lower temp
     }
   }
 

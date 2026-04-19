@@ -5,15 +5,10 @@ export const wisdomRouter = Router()
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
-// Per-session wisdom blob. Shape:
-//   { archive: { [agentId]: AgentMemory[] }, meta: AgentMemory[], updatedAt: number }
-// Stored at wisdomArchives/session:{sessionId}.
 function sessionKey(sessionId: string): string {
   return `session:${sessionId}`
 }
 
-// GET /api/wisdom — fetch this session's wisdom (archive + meta). Requires
-// an x-session-id header so the client can't accidentally cross streams.
 wisdomRouter.get('/', async (req, res) => {
   try {
     const sessionId = req.headers['x-session-id'] as string
@@ -33,7 +28,6 @@ wisdomRouter.get('/', async (req, res) => {
   }
 })
 
-// POST /api/wisdom — replace this session's wisdom blob.
 wisdomRouter.post('/', async (req, res) => {
   try {
     const sessionId = req.headers['x-session-id'] as string
@@ -61,10 +55,6 @@ wisdomRouter.post('/', async (req, res) => {
   }
 })
 
-// GET /api/wisdom/aggregate — cross-session meta-wisdom for RL seeding.
-// Pulls the top-N high-importance reflections across recent training entries
-// so new agents on a fresh machine (or after cache wipe) still benefit from
-// patterns learned by every past season, not just this user's.
 wisdomRouter.get('/aggregate', async (req, res) => {
   try {
     const parsed = parseInt(req.query.limit as string)

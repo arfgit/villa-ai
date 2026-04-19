@@ -106,8 +106,6 @@ const CHALLENGE_WIN = [
   "they work so well together omg",
 ];
 
-// Templates that reference previous seasons — keep them spicy and specific.
-// {prevWinners} / {prevSeason} / {prevTheme} / {currName} get filled in.
 const PAST_SEASON_GENERAL = [
   "season {prevSeason} walked so this season could run",
   "this is NOTHING like season {prevSeason}, the energy is so different",
@@ -176,8 +174,6 @@ function msg(pool: string[], name = ""): ViewerMessage {
   };
 }
 
-// Render a past-season chat blurb by filling in {prevSeason}/{prevWinners}/{prevTheme}/{currName}.
-// Returns null when no suitable past season is available for the requested template.
 function buildPastSeasonMessage(
   prev: SeasonSummary,
   currName: string | null,
@@ -187,7 +183,6 @@ function buildPastSeasonMessage(
     ? `${prev.winnerNames![0]} & ${prev.winnerNames![1]}`
     : "";
 
-  // Pick a template pool that we have data for.
   const pools: Array<{
     pool: string[];
     needsWinners: boolean;
@@ -251,9 +246,6 @@ export function generateViewerReactions(
   const messages: ViewerMessage[] = [];
   const getName = (id: string) => cast.find((a) => a.id === id)?.name ?? id;
 
-  // Past-season nostalgia: chat viewers are longtime fans. When there's an
-  // archive, inject a callback referencing a past season (higher chance early
-  // in the new season when comparisons are freshest; lower chance later).
   const archive = loadTrainingArchive();
   if (archive.seasons.length > 0) {
     const earlyBoost =
@@ -261,8 +253,6 @@ export function generateViewerReactions(
     if (Math.random() < earlyBoost) {
       const prev =
         archive.seasons[Math.floor(Math.random() * archive.seasons.length)]!;
-      // Anchor on a specific on-screen contestant when we have one — makes the
-      // comparison feel targeted rather than generic.
       const speakers = scene.dialogue
         .map((d) => d.agentId)
         .filter((id) => id !== "host");
@@ -276,9 +266,6 @@ export function generateViewerReactions(
     }
   }
 
-  // React to LLM-tagged quotable lines first — these are the spiciest moments
-  // of the scene per the model. Fall back to heuristics only if nothing is
-  // tagged and we need a dialogue-driven reaction.
   const quotableLines = scene.dialogue.filter(
     (d) => d.quotable && d.agentId !== "host",
   );
@@ -289,8 +276,6 @@ export function generateViewerReactions(
           (d) => d.text.length > 30 && d.agentId !== "host",
         );
 
-  // Up to 2 dialogue-driven reactions — named speaker, named target when we
-  // have one, and a template tuned to the emotional register.
   const quoteCount = Math.min(2, dialogueSource.length);
   for (let i = 0; i < quoteCount; i++) {
     const line = dialogueSource[i]!;
@@ -331,10 +316,6 @@ export function generateViewerReactions(
     });
   }
 
-  // Emotion-cluster reactions. When the scene leans hard in one emotional
-  // direction (3+ lines of the same emotion), chat clocks the mood shift —
-  // this catches scenes where the LLM didn't tag anything `quotable` but
-  // the tone is still distinct.
   const emotionCounts: Record<string, number> = {};
   const dialogueOnly = scene.dialogue.filter((d) => d.agentId !== "host");
   for (const line of dialogueOnly) {
@@ -385,9 +366,6 @@ export function generateViewerReactions(
     }
   }
 
-  // Target-fixation reactions. When one person is the target of 3+ lines,
-  // the villa is "ganging up" — chat registers that dynamic with a reaction
-  // naming the target specifically.
   const targetCounts: Record<string, number> = {};
   for (const line of dialogueOnly) {
     if (line.targetAgentId) {
@@ -413,7 +391,6 @@ export function generateViewerReactions(
     });
   }
 
-  // Couple events
   for (const event of scene.systemEvents) {
     if (event.type === "couple_formed" && event.fromId && event.toId) {
       const nameA = getName(event.fromId);
@@ -439,10 +416,8 @@ export function generateViewerReactions(
     }
   }
 
-  // Eliminations — name the person
   for (const id of eliminatedThisScene) {
     messages.push(msg(ELIMINATION, getName(id)));
-    // Extra reaction for the eliminated person's partner
     const partner = _couples.find((c) => c.a === id || c.b === id);
     if (partner) {
       const partnerName = getName(partner.a === id ? partner.b : partner.a);
@@ -456,18 +431,15 @@ export function generateViewerReactions(
     }
   }
 
-  // Casa Amor — reference who's likely switching
   if (casaAmorState && scene.type.startsWith("casa_amor")) {
     const randomCast = cast[Math.floor(Math.random() * cast.length)];
     messages.push(msg(CASA_AMOR, randomCast?.name ?? "someone"));
   }
 
-  // High drama
   if (scene.systemEvents.length >= 4) {
     messages.push(msg(HIGH_DRAMA));
   }
 
-  // Attraction
   const bigAttraction = scene.systemEvents.find(
     (e) => e.type === "attraction_change" && e.delta && e.delta >= 6,
   );
@@ -483,9 +455,6 @@ export function generateViewerReactions(
     });
   }
 
-  // Always at least 2 messages. Prefer a speaker from THIS scene before
-  // falling back to a random villa member — reactions feel disconnected when
-  // chat is talking about someone who never appeared on screen.
   while (messages.length < 2) {
     const sceneSpeakers = Array.from(
       new Set(
@@ -512,6 +481,5 @@ export function generateViewerReactions(
     });
   }
 
-  // Cap at 8
   return messages.slice(0, 8);
 }

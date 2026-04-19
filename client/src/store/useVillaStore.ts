@@ -114,10 +114,6 @@ interface UiState {
   isPaused: boolean;
 }
 
-// Prefetch telemetry. Kept lightweight (counts + timings) — not a
-// structured metrics pipeline. Currently surfaced only via console.log
-// in the prefetch runner. Counts are cumulative across the episode;
-// reset on startNewEpisode.
 export interface PrefetchMetrics {
   batchesStarted: number;
   batchesCompleted: number;
@@ -125,7 +121,7 @@ export interface PrefetchMetrics {
   scenesFailed: number;
   fallbacksEmitted: number;
   lastBatchMs: number | null;
-  lastReadyAt: number | null; // epoch ms
+  lastReadyAt: number | null;
 }
 
 const INITIAL_PREFETCH_METRICS: PrefetchMetrics = {
@@ -151,14 +147,8 @@ interface VillaState {
   viewerMessages: ViewerMessage[];
   ui: UiState;
 
-  // Spin up a brand-new villa with a new session UUID. Preserves the old
-  // session at its old URL so it stays shareable. This is the "I'm done
-  // with this playthrough, start over fresh" action.
   startNewVilla: () => Promise<void>;
-  // Advance to the next season within the SAME session UUID. Archives
-  // the finished season into villaSessions/{id}/seasons/{n} so past
-  // scenes stay browsable without inflating the live session doc, then
-  // bumps Episode.number and refreshes cast + relationships.
+
   startNextSeason: () => Promise<void>;
   generateScene: (type?: SceneType) => Promise<void>;
   triggerPrefetch: (inProgressSceneType?: SceneType) => void;
@@ -235,9 +225,6 @@ VIBE: The overall tone is ${vibe}.
 WILDCARD DIRECTIVE: ${wildcard}.`;
 }
 
-// Wisdom caches live in the trainingData module; we read them via accessor
-// functions so store code keeps synchronous semantics while the actual
-// storage is server-backed (hydrated at boot by App.tsx).
 const MAX_ARCHIVED_PER_AGENT = 6;
 const WISDOM_IMPORTANCE_THRESHOLD = 7;
 const MAX_META_WISDOM = 10;
@@ -286,9 +273,6 @@ async function archiveSeasonWisdom(
   meta.push(...topMeta);
   while (meta.length > MAX_META_WISDOM) meta.shift();
 
-  // Flush to backend. Awaited so callers (notably startNewEpisode's UUID
-  // rotation) can guarantee the archive write lands on the OLD session
-  // before the client starts talking to the server as a NEW session.
   await persistWisdom();
 
   autoSaveTrainingData(episode, cast);
@@ -366,7 +350,6 @@ function applyRecoupleDefections(
   relationships: Relationship[],
   eliminatedIds: string[],
 ): { a: string; b: string }[] {
-  // Dissolve ALL existing couples — everyone re-picks from scratch
   const eligible = activeCast.filter((a) => !eliminatedIds.includes(a.id));
   const remaining = [...eligible];
   const newCouples: { a: string; b: string }[] = [];
@@ -385,7 +368,6 @@ function applyRecoupleDefections(
     );
   }
 
-  // Go down the line: each person picks their preferred partner from remaining pool
   const MAX_COUPLES = 7;
   while (remaining.length >= 2 && newCouples.length < MAX_COUPLES) {
     const chooser = remaining[0]!;
@@ -409,10 +391,6 @@ function applyRecoupleDefections(
   return newCouples;
 }
 
-// Turn a list of deterministic couples into an ordered host-script: who the
-// host calls forward, who they pick, and a short rationale derived from the
-// strongest relationship dimension. The LLM then narrates *within* this
-// structure instead of inventing pairings on its own.
 function buildRecoupleScript(
   couples: { a: string; b: string }[],
   activeCast: Agent[],
@@ -596,19 +574,11 @@ function applyRelDelta(
     r.compatibility = clamp(r.compatibility + delta);
 }
 
-// Structural subset of SystemEvent / LlmSystemEvent that the reducer actually
-// reads. Lets `applyEventList` accept both committed SystemEvent[] (from the
-// gravity pipeline, with `id`/`label`) and raw LlmSystemEvent[] (from the LLM,
-// without those fields) without casting.
 type ReducerEvent = Pick<
   SystemEvent,
   "type" | "fromId" | "toId" | "delta" | "metric"
 >;
 
-// Applies a gravity_shift or gravity_threshold event to the relationship row.
-// Dispatches on `event.metric` rather than `event.type` because both gravity
-// event types use the same reducer logic — only their narrative framing and
-// magnitude differ at emit time.
 function applyGravityEvent(rels: Relationship[], event: ReducerEvent) {
   if (!event.fromId || !event.toId || event.delta === undefined) return;
   if (!event.metric) return;
@@ -621,11 +591,6 @@ function applyGravityEvent(rels: Relationship[], event: ReducerEvent) {
     r.attraction = clamp(r.attraction + event.delta);
 }
 
-// Lower-level event-list reducer. Accepts any event-shaped objects — including
-// the synthetic gravity_shift / gravity_threshold events emitted by the social
-// gravity engine and the raw LlmSystemEvent[] the LLM returns — and folds them
-// into a new relationship / couples list. `applyDeltas` is a thin wrapper over
-// this plus emotion handling; the gravity pipeline reuses this helper directly.
 function applyEventList(
   rels: Relationship[],
   couples: { a: string; b: string }[],
@@ -714,9 +679,6 @@ function clamp(n: number): number {
   return Math.max(0, Math.min(100, n));
 }
 
-// Ranks a couple for "most-in-need-of-a-date-night" by jealousy + trust gap.
-// A struggling couple with low mutual trust or high jealousy is the one worth
-// zooming in on — not a placid top-of-the-villa duo.
 function tensionForCouple(couple: Couple, rels: Relationship[]): number {
   const ab = rels.find((r) => r.fromId === couple.a && r.toId === couple.b);
   const ba = rels.find((r) => r.fromId === couple.b && r.toId === couple.a);
@@ -878,7 +840,6 @@ function applyEliminations(
     pairedIds.add(c.b);
   }
 
-  // 1. Dump any unpaired islanders (the odd one out)
   const unpaired = activeContestants.filter((a) => !pairedIds.has(a.id));
   for (const agent of unpaired) {
     const graceExpiry = newGrace[agent.id];
@@ -887,8 +848,6 @@ function applyEliminations(
     delete newGrace[agent.id];
   }
 
-  // 2. After the 2nd recouple, also dump the weakest couple (like the real show)
-  //    This ensures the cast actually thins out, not just the odd person
   if (
     recoupleOrdinal >= 3 &&
     activeCouples.length > 2 &&
@@ -951,9 +910,6 @@ function syncToServer(state: { episode: Episode; cast: Agent[] }): void {
     ...state.episode,
     brains: stripEmbeddings(state.episode.brains),
   };
-  // Refresh the recent-sessions label with current episode context so
-  // past-session entries in the SessionModal show "Season 3 — 12 scenes"
-  // instead of just a short UUID. Local-only; no network cost.
   const id = localStorage.getItem(SESSION_KEY);
   if (id) {
     const scenes = state.episode.scenes.length;
@@ -964,7 +920,6 @@ function syncToServer(state: { episode: Episode; cast: Agent[] }): void {
     touchRecentSession(id, label);
   }
   saveSessionToServer(payload, state.cast).catch(() => {
-    // Retry once after 2s if server wasn't ready
     setTimeout(() => {
       saveSessionToServer(payload, state.cast).catch((err) => {
         console.warn(
@@ -975,7 +930,6 @@ function syncToServer(state: { episode: Episode; cast: Agent[] }): void {
     }, 2000);
   });
 
-  // Save accumulated training data for this session (one doc per session, grows with scenes)
   if (state.episode.scenes.length > 0) {
     const castNames = state.cast.reduce(
       (acc, a) => {
@@ -1035,11 +989,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
 
   startNewVilla: async () => {
     const prev = get();
-    // Race guard — refuse to start a new episode while a scene is still
-    // generating. Without this, an in-flight generateScene's commit would
-    // read getSessionId() AFTER rotation and write the old-episode scene
-    // onto the brand-new session, corrupting it. Block at the entry and
-    // let the user retry when the current scene settles.
     if (prev.isGenerating) {
       set({
         lastError:
@@ -1047,10 +996,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       });
       return;
     }
-    // Step 1 — archive wisdom + training data to the OLD session UUID. We
-    // await persistWisdom inside archiveSeasonWisdom so the write lands
-    // before we change identities; otherwise the rotate below would
-    // route it to the new (empty) session instead.
     try {
       await archiveSeasonWisdom(prev.episode, prev.cast);
     } catch (err) {
@@ -1061,13 +1006,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     }
     refreshTrainingCache().catch(() => {});
 
-    // Step 2 — rotate the session UUID. This is the core of the "never
-    // overwrite an existing session" fix: the old episode stays intact
-    // on the server under its old UUID, and the new episode gets a
-    // fresh, collision-verified UUID of its own. If rotation fails
-    // (server unreachable, collision retry exhausted), we surface the
-    // error via lastError and BAIL — silently continuing on the old
-    // UUID would reintroduce the overwrite bug we're fixing.
     try {
       await rotateSessionId();
     } catch (err) {
@@ -1079,20 +1017,8 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       return;
     }
 
-    // Reset the season counter so the new session starts at Season 1. Without
-    // this, createEpisode below would increment off the PREVIOUS session's
-    // counter (e.g. a user on Season 3 who rotates would see "Season 4" on a
-    // brand-new villa with a different cast — confusing since the new UUID
-    // has no history of seasons 1–3). restoreFromServer / loadSessionByKey
-    // still re-align the counter when loading an existing session, so this
-    // reset only affects the truly-new-villa path.
     seasonCounter = 0;
 
-    // Step 3 — reset in-memory state for the fresh episode. The prefetch
-    // single-flight guard needs clearing so the new episode's cold-start
-    // batch isn't blocked by a lingering flag from the previous episode.
-    // Any pending resolve from the old episode is still fenced by the
-    // episode-id check inside triggerPrefetch.
     resetPrefetchState();
     const newEpisode = createEpisode();
     set((s) => ({
@@ -1107,16 +1033,11 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       viewerMessages: [],
       ui: { ...s.ui, isPaused: false },
     }));
-    // Step 4 — first save against the NEW UUID. This is a fresh
-    // session on the server; POST /api/session will create it.
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
   startNextSeason: async () => {
     const prev = get();
-    // Same race guard as startNewVilla: a scene mid-generation would
-    // commit against the OLD season after we've reset to the new one,
-    // leaving an orphaned scene on a fresh villa. Block at the entry.
     if (prev.isGenerating) {
       set({
         lastError:
@@ -1125,8 +1046,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       return;
     }
 
-    // Archive wisdom FIRST so reflections from the finishing season land
-    // under this session UUID (which is the same UUID we'll keep using).
     try {
       await archiveSeasonWisdom(prev.episode, prev.cast);
     } catch (err) {
@@ -1137,12 +1056,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     }
     refreshTrainingCache().catch(() => {});
 
-    // Archive the current season's scenes + final state snapshot into
-    // villaSessions/{id}/seasons/{n}. On failure, bail — silently losing
-    // the archive would mean past seasons vanish from the UI with no
-    // recovery path, and the user would have no idea the archive didn't
-    // persist. Better to surface the error and let them retry than to
-    // charge forward and drop data.
     const sessionId = getSessionId();
     const archive: SeasonArchive = {
       sessionId,
@@ -1175,10 +1088,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       return;
     }
 
-    // Prefetch guard + fresh episode via the same createEpisode helper
-    // startNewVilla uses. Unlike startNewVilla we do NOT rotate the
-    // session UUID or reset seasonCounter — the whole point is to stay
-    // on the same session and let Episode.number climb.
     resetPrefetchState();
     const newEpisode = createEpisode();
     set((s) => ({
@@ -1196,22 +1105,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
-  // Fire-and-forget prefetch trigger. Callable from two sites now:
-  //   1. generateScene POST-COMMIT (end of the scene action). Fresh state.
-  //   2. useScenePlayback on line 0 — fires when a scene starts playing,
-  //      belt-and-braces if the post-commit trigger didn't keep up.
-  // (A third pre-LLM site was removed to avoid prefetch racing with
-  // the in-progress live generate — the overlap wastes capacity on any
-  // provider that bottlenecks on single-model/single-connection.)
-  //
-  // Idempotent: the runner has a single-flight guard, and planPrefetch
-  // returns null when the queue is already deep enough.
-  //
-  // inProgressSceneType param is kept for API stability but should be
-  // left undefined from callers — simulating an in-progress state-mutator
-  // (recouple/bombshell/minigame) causes us to prefetch SUBSEQUENT scenes
-  // against stale couples/relationships, which then commit after the real
-  // scene changes them.
   triggerPrefetch: (inProgressSceneType) => {
     const state = get();
     if (state.episode.winnerCouple) return;
@@ -1219,10 +1112,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       (a) => !state.episode.eliminatedIds.includes(a.id),
     );
 
-    // Safety: refuse to simulate state-mutating types. If a caller ever
-    // passes one (we don't today, but the signature still accepts it),
-    // fall back to non-simulated mode so we don't prefetch against stale
-    // couples that are about to change.
     const STATE_MUTATING: ReadonlySet<SceneType> = new Set([
       "recouple",
       "bombshell",
@@ -1255,9 +1144,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
 
     const snapshotEpisodeId = state.episode.id;
     const batchStartedAt = Date.now();
-    // Metrics: batch started. scenesReady / lastReadyAt tick inside
-    // onSceneReady as each scene lands. batchesCompleted + lastBatchMs
-    // tick in the final .then() below.
     set((s) => ({
       prefetchMetrics: {
         ...s.prefetchMetrics,
@@ -1280,10 +1166,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       avgDramaScore: averageDramaScore(state.episode.dramaScores),
       gapToFill: policy.gapToFill,
       viewerSentiment: state.episode.viewerSentiment,
-      // Incremental enqueue — push each scene into the queue as it
-      // lands, rather than waiting for the full batch. Episode-id fence
-      // lives inside the callback so results from an abandoned batch
-      // don't leak into a newly-started episode.
       onSceneReady: (queued) => {
         if (get().episode.id !== snapshotEpisodeId) return;
         set((s) => ({
@@ -1297,9 +1179,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       },
     })
       .then(() => {
-        // Metrics: batch finished. lastBatchMs captures wallclock from
-        // trigger→done so devtools / debug panel can see whether
-        // prefetch is keeping up with playback pace.
         if (get().episode.id !== snapshotEpisodeId) return;
         const elapsed = Date.now() - batchStartedAt;
         set((s) => ({
@@ -1381,17 +1260,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       }
     }
 
-    // Regular (non-reward) dates focus on exactly ONE couple — mirrors the
-    // reward-date path but picks the focal couple from current tension instead
-    // of a recent challenge win. Without this, the LLM treats "date" as an
-    // ensemble scene and drama spills in from the rest of the villa.
-    //
-    // ROTATION: tension-rank alone would pick the same highest-tension couple
-    // for every date night (observed: 4 consecutive date nights with the
-    // same pair). We penalize couples who've been on a date in the last 3
-    // dates — they get re-ranked to the bottom of the order so someone
-    // else gets screen time. A couple who hasn't had a date yet is always
-    // preferred over one who has, regardless of tension.
     if (
       sceneType === "date" &&
       !isRewardDate &&
@@ -1402,8 +1270,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         .filter((s) => s.type === "date")
         .slice(-3);
       const scenesSinceDateByPair = new Map<string, number>();
-      // Walk recent dates newest-first and record how recently each pair
-      // has been featured. Missing pairs get Infinity → always preferred.
       for (let i = recentDates.length - 1; i >= 0; i--) {
         const scene = recentDates[i]!;
         const key = [...scene.participantIds].sort().join("|");
@@ -1416,10 +1282,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         const yKey = [y.a, y.b].sort().join("|");
         const xRecency = scenesSinceDateByPair.get(xKey) ?? Infinity;
         const yRecency = scenesSinceDateByPair.get(yKey) ?? Infinity;
-        // Larger recency (longer since their last date) wins. Within the
-        // same recency bucket, higher tension still wins — so Never-Dated
-        // couples are ordered by tension, and couples tied on last date are
-        // also ordered by tension.
         if (xRecency !== yRecency) return yRecency - xRecency;
         return tensionForCouple(y, rels) - tensionForCouple(x, rels);
       });
@@ -1439,13 +1301,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           initial.episode.bombshellPool.length,
           activeCast.length,
         );
-        // Odd-parity invariant: after the bombshell walks in, the total cast
-        // must be ODD so the next recouple naturally strands one unpaired
-        // islander for the dumping. If the planned arrivals would make the
-        // cast even, we delay the bombshell by one scene and run an
-        // islander-vote dumping first — this keeps the show's rhythm and
-        // restores parity before the new arrival lands. The bombshell will
-        // be re-scheduled naturally on the next planner tick.
         const projected = activeCast.length + count;
         if (projected % 2 === 0 && activeCast.length > 4) {
           sceneType = "islander_vote" as SceneType;
@@ -1464,12 +1319,10 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       }
     }
 
-    // ── Casa Amor scene setup ──
     let casaAmorUpdate: Partial<CasaAmorState> | null = null;
     let casaAmorNewCast: Agent[] = [];
 
     if (sceneType === "casa_amor_arrival") {
-      // Generate Casa Amor cast and split villa
       casaAmorNewCast = generateCasaAmorCast(initial.cast.map((a) => a.id));
       const { villaGroupIds, casaAmorGroupIds } = splitVilla(
         activeCast,
@@ -1495,7 +1348,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       initial.episode.casaAmorState
     ) {
       const casa = initial.episode.casaAmorState;
-      // Alternate between villa group and casa group each scene
       const groupIds =
         casa.scenesCompleted % 2 === 0
           ? casa.villaGroupIds
@@ -1516,9 +1368,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       ];
     }
 
-    // ── Grand Finale: live-chat picks the winning couple ──
-    // Pre-compute the winner from viewerSentiment (same pattern as ceremony elims)
-    // so the LLM narrates the predetermined outcome rather than inventing one.
     let grandFinaleResult: {
       winnerCouple: Couple;
       loserCouple: Couple;
@@ -1550,7 +1399,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         winner = c2;
         loser = c1;
       } else {
-        // Tie on chat: fall back to relationship chemistry.
         if (chem(c1) >= chem(c2)) {
           winner = c1;
           loser = c2;
@@ -1642,22 +1490,12 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       const agentGoals: Record<string, string> = {};
       const agentPolicies: Record<string, string> = {};
       if (!isIntroduction) {
-        // Pre-fill goals + policies synchronously (no I/O) so the async
-        // retrieval loop below has less bookkeeping.
         for (const agent of retrievalParticipants) {
           const brain = initial.episode.brains[agent.id];
           if (!brain) continue;
           agentGoals[agent.id] = brain.goal;
           agentPolicies[agent.id] = brain.policy;
         }
-        // Parallel embedding retrieval. Previously this loop awaited each
-        // agent's retrieveMemories() in sequence — with 8 active cast
-        // members that's 8 serial HTTP embed calls before every scene
-        // (~2-3s just for round trips on local Ollama). Promise.all
-        // collapses them into one parallel fan-out: same server-side
-        // workload, ~8× less wallclock on the client. Per-agent errors
-        // are caught individually so one failure doesn't lose all
-        // memories for the scene.
         const retrievalTasks = retrievalParticipants
           .map((agent) => {
             const brain = initial.episode.brains[agent.id];
@@ -1703,7 +1541,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         }
       }
 
-      // Pre-compute elimination for ceremony scenes so the LLM can write the drama
       let ceremonyElim: {
         eliminatedIds: string[];
         narrative: string;
@@ -1714,7 +1551,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         sceneType === "islander_vote" ||
         sceneType === "producer_twist";
       if (isCeremonyScene && activeCast.length <= 4) {
-        // Not enough cast for a ceremony elimination — fall back to regular scene
         sceneType = "firepit" as SceneType;
       } else if (isCeremonyScene) {
         if (sceneType === "public_vote") {
@@ -1756,7 +1592,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         sceneType.startsWith("casa_amor") ||
         sceneType === "grand_finale";
 
-      // Determine challenge category
       const challengeCategory: ChallengeCategory | undefined =
         sceneType === "minigame" || sceneType === "challenge"
           ? nextChallengeCategory(initial.episode.scenes)
@@ -1768,19 +1603,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
             .join(" and ")
         : undefined;
 
-      // ── Scene Engine ──
-      // Derive structured scene context (tension, planned beats, per-agent roles)
-      // BEFORE the LLM call so the prompt carries a concrete shape instead of
-      // prose directives.
-      //
-      // Skip for:
-      //   - the season opener (no tension yet, no relationships formed)
-      //   - single-speaker scenes (engine needs ≥2 participants)
-      //   - procedural scenes where the hardcoded direction IS the structure
-      //     (recouple ceremony, minigame/challenge game rules, bombshell
-      //     entrance, ceremonies, grand finale). Adding beat-level intent
-      //     plans on top of those just makes the LLM pick one to follow and
-      //     drop the other — producing the "Maren monologue" failure mode.
       const PROCEDURAL_SCENE_TYPES = new Set<SceneType>([
         "recouple",
         "bombshell",
@@ -1815,10 +1637,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           })
         : undefined;
 
-      // Pre-compute the recouple ceremony so the prompt carries a deterministic
-      // 1-by-1 pairing script. The LLM narrates within it; the same
-      // applyRecoupleDefections pass runs post-LLM as a safety net to guarantee
-      // the state matches the script even if the model deviates.
       const recoupleScript =
         sceneType === "recouple" && !isFinaleScene
           ? buildRecoupleScript(
@@ -1833,8 +1651,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
             )
           : undefined;
 
-      // Pick a specific minigame so the host can announce it by name with
-      // real rules. Falls back to prompt-level defaults if undefined.
       const recentGameNames = initial.episode.scenes
         .slice(-6)
         .filter((s) => s.type === "minigame" || s.type === "challenge")
@@ -1906,9 +1722,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         viewerSentiment: initial.episode.viewerSentiment,
       };
 
-      // Interviews are SOLO confessionals — only the subject is a valid speaker.
-      // We have to enforce this at the id-whitelist level, not just the prompt,
-      // because the LLM doesn't reliably obey "no other agents" instructions.
       const validSceneIds =
         sceneType === "interview" && interviewSubjectId
           ? [interviewSubjectId]
@@ -1924,30 +1737,13 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           ? activeCast.map((a) => a.id)
           : undefined;
 
-      // IMPORTANT: do NOT fire triggerPrefetch here. Firing it in-flight
-      // caused a measurable regression on single-model Ollama setups —
-      // the prefetch runner queued additional prompts onto the same
-      // model instance as the in-progress scene, halving scene-0 TPS.
-      // Prefetch runs post-commit (end of this function) and at scene
-      // playback start via useScenePlayback — both of which happen
-      // BEFORE or AFTER the live LLM call, never concurrent with it on
-      // Ollama. Trade: scene 1 no longer overlaps with scene 0
-      // generation, but scene 0 is back to its true solo latency.
-
       let llm: LlmSceneResponse;
       let sceneWasQueued = false;
       const queue = initial.sceneQueue;
-      // Find the first queued scene whose outline type matches — the
-      // prefetcher batches speculatively past non-batchable slots, so the
-      // head might be a firepit tagged for a future scene while we're
-      // currently doing a minigame. Skip-and-keep instead of discard.
       const matchIdx = queue.findIndex((q) => q.outline.type === sceneType);
       if (matchIdx >= 0) {
         llm = queue[matchIdx]!.scene;
         sceneWasQueued = true;
-        // Functional update: the prefetch runner may have appended more
-        // scenes between when we snapshot `queue` and when we write back,
-        // and a naive .filter of the old snapshot would silently drop them.
         set((s) => ({
           sceneQueue: s.sceneQueue.filter(
             (_, i, arr) => arr[i] !== queue[matchIdx],
@@ -1958,11 +1754,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           },
         }));
       } else {
-        // No match — either the queue is empty, or it's holding scenes for
-        // future non-current types. Live-gen this one. Label differentiates
-        // "genuine live" (non-batchable type, always lives in main path)
-        // from "queue miss" (prefetch didn't anticipate this), so it's
-        // easier to diagnose whether prefetch is keeping up.
         const isExpectedLive = !isBatchable(sceneType, initial.episode.scenes);
         set({
           generationProgress: {
@@ -2041,8 +1832,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
               quotable: d.quotable === true,
             };
           })
-          // In non-opener scenes, drop self-introduction lines the LLM drifts
-          // back into — they reset viewer attention and break continuity.
           .filter((line) => isIntroduction || !isIntroductionLine(line.text)),
         systemEvents: sanitizedLlm.systemEvents.map((e) => ({
           id: newId("evt"),
@@ -2052,18 +1841,11 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           delta: e.delta,
           label: e.label,
         })),
-        // Append the elimination-reason blurb when a ceremony vote decided
-        // this scene's outcome. Gives the UI a concrete "why they went home"
-        // (e.g. "received 4 of 7 islander votes — viewer sentiment had
-        // turned against them") without relying on the LLM to mention it.
         outcome: ceremonyElim?.reason
           ? `${llm.outcome}\n\n${ceremonyElim.reason}`
           : llm.outcome,
         createdAt: Date.now(),
         challengeCategory,
-        // Queued scenes were prefetched via the batch path without a
-        // scene-engine plan, so their dialogue wasn't written against the
-        // context we just built — don't persist a plan that doesn't match.
         sceneContext: sceneWasQueued ? undefined : sceneContext,
       };
 
@@ -2075,10 +1857,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       let nextActiveCastIds = [...fresh.episode.activeCastIds];
       let nextBombshellsIntroduced = [...fresh.episode.bombshellsIntroduced];
 
-      // Merge Casa Amor newcomers into the visible cast + relationships + brains during the arc,
-      // but do NOT add them to activeCastIds. They're temporary contestants until stick/switch
-      // resolves — adding them to active cast early contaminates computeStickOrSwitchChoices
-      // (which treats any coupleless activeCast member as a singleton) and skews phase/planner math.
       if (casaAmorNewCast.length > 0 && sceneType.startsWith("casa_amor")) {
         for (const newAgent of casaAmorNewCast) {
           if (!dynamicCast.some((a) => a.id === newAgent.id)) {
@@ -2258,8 +2036,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         preElimGrace,
       );
 
-      // Ceremony eliminations were pre-computed before the LLM call (see ceremonyElim above)
-      // Apply them now to state
       if (ceremonyElim && ceremonyElim.eliminatedIds.length > 0) {
         elim.eliminatedIds.push(...ceremonyElim.eliminatedIds);
         elim.couples = elim.couples.filter(
@@ -2279,9 +2055,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         );
       }
 
-      // Grand Finale: override couples/eliminations/winner with the pre-computed
-      // viewer-sentiment outcome. The losing couple is dumped from the villa;
-      // the winning couple is crowned, ending the season.
       if (grandFinaleResult) {
         finalCouples = [grandFinaleResult.winnerCouple];
         for (const id of [
@@ -2293,9 +2066,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         elim.winnerCouple = grandFinaleResult.winnerCouple;
       }
 
-      // Resolve Casa Amor stick/switch early so downstream state (locations, rewards,
-      // soloSinceBombshell, phase, eliminations) reflects the post-resolution couples.
-      // activeCast here is OG-only because we didn't merge newcomers into activeCastIds.
       let stickSwitchChoices: StickOrSwitchChoice[] | null = null;
       let casaAmorResolvedChanges: {
         phase: "post";
@@ -2618,8 +2388,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         avgDramaScore: averageDramaScore(nextDramaScores),
       });
 
-      // Casa Amor state transitions. Stick/switch resolution already happened earlier
-      // (see the early-resolve block above); this just propagates state shape.
       let nextCasaAmorState = fresh.episode.casaAmorState;
       if (casaAmorUpdate && sceneType === "casa_amor_arrival") {
         nextCasaAmorState = {
@@ -2677,7 +2445,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         generationProgress: null,
       });
 
-      // Generate viewer reactions and update sentiment
       const postEp = get().episode;
       const newlyEliminated = postEp.eliminatedIds.filter(
         (id) => !fresh.episode.eliminatedIds.includes(id),
@@ -2690,10 +2457,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         postEp.casaAmorState,
         postEp.scenes.length,
       );
-      // Aggregate chat messages into popularity deltas. `aggregateChatToPopularity`
-      // reads ViewerMessage[] as opaque — sentiment labels + name mentions —
-      // which keeps the pipeline swappable for a future RL-trained chat
-      // generator without touching the aggregator.
       const activeCastForGravity = get().cast.filter(
         (a) => !postEp.eliminatedIds.includes(a.id),
       );
@@ -2705,9 +2468,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         activeCastForGravity,
       );
 
-      // Run the gravity pass on the NEW sentiment against the committed
-      // relationships. Emits gravity_shift drips (continuous) and
-      // gravity_threshold events (named, once per direction per season).
       const seasonCumulativeMap = new Map(
         Object.entries(postEp.gravityCumulative),
       );
@@ -2720,9 +2480,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         postEp.crossedThresholds,
       );
 
-      // Fold gravity events into the committed scene's systemEvents so they
-      // persist, export, and surface in the scene feed. Reuses applyEventList
-      // so drip deltas actually move relationship numbers — not just decoration.
       const { rels: postGravityRels } = applyEventList(
         postEp.relationships,
         postEp.couples,
@@ -2760,9 +2517,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
 
       syncToServer({ episode: get().episode, cast: get().cast });
 
-      // Post-commit prefetch: scene N just landed, fire gen for N+1..N+5 now
-      // so by the time playback ends the queue has them ready. The playback
-      // hook will also call triggerPrefetch at scene-start as belt-and-braces.
       get().triggerPrefetch();
     } catch (err) {
       const raw = err instanceof Error ? err.message : "Unknown error";
@@ -2855,17 +2609,11 @@ function migrateEpisode(episode: Episode): void {
   }
 }
 
-// Session IDs are opaque tokens we hand out. Accept only safe alphanumerics/
-// hyphens/underscores, bounded length — never raw user input as a storage key.
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
 function isValidSessionId(id: unknown): id is string {
   return typeof id === "string" && SAFE_SESSION_ID.test(id);
 }
 
-// String cap used during session restore. Defensive against a compromised/forged
-// session document trying to smuggle prompt-injection payloads via long bios or
-// dialogue fields. Values longer than the cap are truncated — we preserve the
-// session but neutralize the payload.
 const MAX_STRING = 2000;
 
 function sanitizeString(v: unknown, max = MAX_STRING): string {
@@ -2901,10 +2649,6 @@ function sanitizeCast(raw: unknown): Agent[] | null {
   return out.length > 0 ? out : null;
 }
 
-// Shallow episode check — make sure the critical collections are actually arrays
-// and that the content will survive downstream consumers. Deep field sanitization
-// for dialogue/memories would be substantial; migrateEpisode + the prompt-side
-// `clip()` layer together catch the residual risk.
 function sanitizeEpisode(raw: unknown): Episode | null {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Record<string, unknown>;
@@ -2919,8 +2663,6 @@ function sanitizeEpisode(raw: unknown): Episode | null {
 }
 
 export async function restoreFromServer(): Promise<boolean> {
-  // Hydrate wisdom + training caches from the backend before any episode work.
-  // Kept in parallel (no await on the training cache, which is prompt-only).
   hydrateWisdom().catch(() => {});
   refreshTrainingCache().catch(() => {});
   try {
@@ -2960,12 +2702,6 @@ export async function loadSessionByKey(sessionId: string): Promise<boolean> {
     console.warn("[restore] refusing to load invalid sessionId");
     return false;
   }
-  // Race guard — if a scene is currently generating, refuse the swap. An
-  // in-flight generateScene reads getSessionId() at commit time; if we
-  // rewrite localStorage to a new UUID mid-generation, the next commit
-  // lands on the WRONG session, corrupting whichever one the user just
-  // tried to load. Surface the refusal via lastError so the UI explains
-  // it (rather than silently doing nothing).
   if (useVillaStore.getState().isGenerating) {
     useVillaStore.setState({
       lastError:
@@ -2973,8 +2709,6 @@ export async function loadSessionByKey(sessionId: string): Promise<boolean> {
     });
     return false;
   }
-  // Loading a different session means the wisdom cache (per-session on the
-  // server) is now stale — re-hydrate before continuing.
   hydrateWisdom().catch(() => {});
   try {
     const saved = await loadSessionById(sessionId);

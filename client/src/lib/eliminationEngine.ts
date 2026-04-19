@@ -10,10 +10,7 @@ export interface EliminationResult {
   eliminatedIds: string[];
   type: EliminationType;
   narrative: string;
-  // Short human-readable "why this person was eliminated" blurb — used
-  // by the UI to show a couple sentences of context after the vote, and
-  // can be fed back into the LLM's memory stream for downstream scenes.
-  // Distinct from `narrative` which is the host's on-screen announcement.
+
   reason?: string;
 }
 
@@ -48,7 +45,6 @@ function coupleStrength(couple: Couple, relationships: Relationship[]): number {
   );
 }
 
-// Dumps the unpaired person with lowest total attraction+compatibility when cast is odd
 export function recoupleElimination(
   active: Agent[],
   couples: Couple[],
@@ -87,7 +83,6 @@ export function recoupleElimination(
   };
 }
 
-// Simulated public vote — lowest popularity in the weakest couple gets dumped
 export function publicVoteElimination(
   active: Agent[],
   couples: Couple[],
@@ -154,7 +149,6 @@ export function publicVoteElimination(
   };
 }
 
-// Fellow islanders vote out the least compatible person
 export function islanderVoteElimination(
   active: Agent[],
   couples: Couple[],
@@ -179,15 +173,6 @@ export function islanderVoteElimination(
       const rel = relationships.find(
         (r) => r.fromId === voter.id && r.toId === candidate.id,
       );
-      // Viewer-popularity nudge: unpopular contestants (low viewer
-      // sentiment) look MORE votable to the room. Models the dynamic
-      // that cast members subtly pick up on public vibe through
-      // producer hints, phone check-ins, and each other's behavior.
-      // Scale: symmetric ±20 around sentiment=50. Sentiment of 0 adds
-      // +20 to the vote score (most votable); sentiment of 100 subtracts
-      // 20 (mild protection for fan favorites). Weighted so peer
-      // antipathy — which can move ~100 points across trust/jealousy/
-      // compatibility — is still the dominant factor.
       const candidateSentiment = viewerSentiment?.[candidate.id] ?? 50;
       const popularityNudge = (50 - candidateSentiment) * 0.4;
       const score =
@@ -242,7 +227,6 @@ export function islanderVoteElimination(
   };
 }
 
-// Producer shakes things up when drama is low
 export function producerIntervention(
   active: Agent[],
   dramaScores: Record<string, number>,
@@ -253,7 +237,6 @@ export function producerIntervention(
 
   for (const agent of active) {
     const drama = dramaScores[agent.id] ?? 0;
-    // Also consider relationship variance — flat stats = boring
     const agentRels = relationships.filter((r) => r.fromId === agent.id);
     const variance =
       agentRels.length > 0

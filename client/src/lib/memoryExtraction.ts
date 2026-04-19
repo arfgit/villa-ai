@@ -6,14 +6,6 @@ import type {
 } from "@villa-ai/shared";
 import { formatRewardTrajectory, sumRewards } from "./rewards";
 
-// ⚠️  Architectural outlier: unlike embeddings.ts and scene generation
-// (which route through /api/* on the Node server), memory extraction
-// currently talks to Ollama DIRECTLY through Vite's dev-only /ollama
-// proxy. This means memory extraction silently no-ops in production
-// deploys (there is no /ollama rewrite on Firebase Hosting). Fixing
-// this requires a server route that wraps extractObservationsForScene
-// / reflectAcrossAgents on top of the shared provider chain. See the
-// dead-code audit for the full migration note.
 const DEFAULT_HOST = "/ollama";
 const DEFAULT_MODEL = "llama3.2";
 
@@ -48,20 +40,12 @@ async function ollamaJsonCall(
         repeat_penalty: 1.15,
         presence_penalty: 0.3,
         num_predict: 2048,
-        // Pin to match the server-side scene-gen runner. Without this,
-        // Ollama spins up a separate runner sized to its VRAM-based
-        // default (262144 on 48GB M3 Max), which lands most layers on
-        // CPU and tanks throughput. Keep in sync with server's NUM_CTX.
         num_ctx: 8192,
       },
     }),
   });
   if (!res.ok) {
     const body = await res.text().catch(() => "");
-    // Cap the body snippet for consistency with the server-side copy —
-    // Ollama error text can run long (stack traces, device info) and
-    // that bloats console errors + browser devtools without helping
-    // the user debug.
     const snippet = (body || res.statusText).slice(0, 200);
     throw new Error(`Ollama ${res.status}: ${snippet}`);
   }

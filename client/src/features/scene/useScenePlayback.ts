@@ -17,10 +17,6 @@ export function useScenePlayback() {
     return scene?.dialogue.length ?? 0;
   });
 
-  // When a scene starts playing, kick prefetch. The writers room runs while
-  // we're watching dialogue — which is free wallclock that would otherwise
-  // be spent idle. triggerPrefetch is idempotent (single-flight guard in
-  // the runner), so this is safe even if post-commit already fired.
   useEffect(() => {
     if (!currentSceneId) return;
     if (currentLineIndex !== 0) return;

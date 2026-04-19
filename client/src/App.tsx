@@ -25,16 +25,12 @@ export default function App() {
   const bp = useBreakpoint();
   const [isRestoring, setIsRestoring] = useState(true);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
-  // Separate from store.lastError — boot failures happen BEFORE the store's
-  // error-display paths are rendered, so we surface them in the loading
-  // screen itself rather than silently stalling on "loading your villa...".
+
   const [bootError, setBootError] = useState<string | null>(null);
 
   const currentScene = episode.scenes.find((s) => s.id === currentSceneId);
   const currentSceneType = currentScene?.type;
-  // When the current scene is a recouple, count how many recouples have
-  // happened including this one. Used to relabel the first (ordinal === 1)
-  // as "First Coupling" instead of "Recoupling" in the cast location column.
+
   const recoupleOrdinal =
     currentScene?.type === "recouple"
       ? episode.scenes
@@ -46,22 +42,13 @@ export default function App() {
       : undefined;
 
   useEffect(() => {
-    // Resolve the session UUID FIRST (boot-time collision check against
-    // server); only then load whatever session that UUID points to. This
-    // ordering prevents request() from seeing an empty localStorage and
-    // throwing mid-restore, and prevents a freshly-generated UUID from
-    // silently landing on top of someone else's existing session.
+
     (async () => {
       try {
         await ensureSessionId();
         await restoreFromServer();
       } catch (err) {
-        // ensureSessionId throws only on the pathological 5-collision /
-        // unreachable-server case; restoreFromServer catches its own
-        // errors internally. If we reach this branch, localStorage has
-        // no session UUID — every subsequent getSessionId() would throw.
-        // Surface the error in the loading screen so the user sees a
-        // reload prompt instead of a blank app.
+
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[boot] session resolution failed:", msg);
         setBootError(msg);
@@ -70,11 +57,6 @@ export default function App() {
       }
     })();
   }, []);
-
-  // Scene 0 is opt-in by design: the user clicks the [▶ start show]
-  // button in BottomActionBar to begin the season. We intentionally do
-  // NOT warm-generate on mount so the app doesn't spend tokens or lock
-  // isGenerating until the user is actually ready to watch.
 
   useEffect(() => {
     if (currentSceneType) {
@@ -101,13 +83,7 @@ export default function App() {
           <div className="text-villa-love text-xs uppercase tracking-widest">
             could not start session
           </div>
-          {/*
-            User-facing copy only — the raw err.message from ensureSessionId /
-            restoreFromServer can include fetch URLs, stack lines, or server
-            internals that aren't useful to the user and shouldn't be leaked
-            into UI. The full message is logged to the dev console above via
-            console.error for debugging.
-          */}
+          {}
           <div className="text-villa-dim text-xs leading-relaxed break-words">
             Could not connect to the server. Check your connection and try
             again. If this keeps happening, the console log has details.

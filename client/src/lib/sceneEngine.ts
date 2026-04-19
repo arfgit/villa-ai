@@ -16,30 +16,19 @@ import type {
   TurnIntent,
 } from "@villa-ai/shared";
 
-// ──────────────────────────────────────────────────────────────────────
-// Scene Engine
-// Pure derivation: given episode state and a scene type, produce the full
-// SceneContext (tension, pattern, per-agent roles, planned beat sequence).
-// Called by useVillaStore.generateScene; the SceneContext ships over the
-// wire inside BuildArgs and is rendered into the final prompt by the
-// server's prompt builder (server/src/lib/prompt.ts).
-// ──────────────────────────────────────────────────────────────────────
-
 export interface BuildSceneContextArgs {
   sceneType: SceneType;
-  participants: Agent[]; // agents who will be in this scene (post-forcedParticipants)
-  allCast: Agent[]; // everyone in the villa (for relationship lookups)
+  participants: Agent[];
+  allCast: Agent[];
   relationships: Relationship[];
   emotions: EmotionState[];
   couples: Couple[];
   brains: Record<string, AgentBrain>;
   dramaScores: Record<string, number>;
-  recentScenes: Scene[]; // last N scenes for tension + recent-event derivation
+  recentScenes: Scene[];
   interviewSubjectId?: string;
-  grandFinaleWinnerId?: string; // if a, b of winning couple — engine can skew toward triumph
+  grandFinaleWinnerId?: string;
 }
-
-// ─────────────────── tension ───────────────────
 
 const SCENE_TYPE_TENSION_MOD: Partial<Record<SceneType, number>> = {
   recouple: 20,
@@ -51,7 +40,7 @@ const SCENE_TYPE_TENSION_MOD: Partial<Record<SceneType, number>> = {
   public_vote: 18,
   islander_vote: 18,
   producer_twist: 22,
-  grand_finale: 10, // tense but triumphant, not combative
+  grand_finale: 10,
   challenge: 5,
   minigame: 3,
   date: -5,
@@ -62,14 +51,11 @@ const SCENE_TYPE_TENSION_MOD: Partial<Record<SceneType, number>> = {
   interview: 8,
 };
 
-// Compute a 0–100 tension value from current episode state. Used as the main
-// dial for pattern + beat selection. Exported so unit tests can lock the math.
 export function computeTension(args: BuildSceneContextArgs): number {
   const { participants, relationships, dramaScores, recentScenes, sceneType } =
     args;
   const participantIds = new Set(participants.map((a) => a.id));
 
-  // 1. Average drama score across participants (drama already tracks recent spikes)
   let dramaSum = 0;
   let dramaCount = 0;
   for (const id of participantIds) {
@@ -80,19 +66,17 @@ export function computeTension(args: BuildSceneContextArgs): number {
     }
   }
   const avgDrama = dramaCount > 0 ? dramaSum / dramaCount : 0;
-  // dramaScores typically sit 0–15ish; scale to 0–40
+
   const dramaComponent = Math.min(40, avgDrama * 3);
 
-  // 2. Max jealousy among participant pairs (single simmering rivalry moves the dial a lot)
   let maxJealousy = 0;
   for (const r of relationships) {
     if (participantIds.has(r.fromId) && participantIds.has(r.toId)) {
       if (r.jealousy > maxJealousy) maxJealousy = r.jealousy;
     }
   }
-  const jealousyComponent = maxJealousy * 0.3; // 0–30
+  const jealousyComponent = maxJealousy * 0.3;
 
-  // 3. Recency of a combustible event in the last 3 scenes
   let eventBoost = 0;
   const recent = recentScenes.slice(-3);
   for (const s of recent) {
@@ -104,7 +88,6 @@ export function computeTension(args: BuildSceneContextArgs): number {
     }
   }
 
-  // 4. Scene-type modifier
   const typeMod = SCENE_TYPE_TENSION_MOD[sceneType] ?? 0;
 
   return Math.max(
@@ -116,11 +99,6 @@ export function computeTension(args: BuildSceneContextArgs): number {
   );
 }
 
-// ─────────────────── pattern selection ───────────────────
-
-// Pick a dialogue pattern that fits the current tension + scene type. Some
-// scene types have a dominant pattern regardless of tension (e.g. interview
-// is always a confession cascade).
 export function selectPattern(
   sceneType: SceneType,
   tension: number,
@@ -142,14 +120,12 @@ export function selectPattern(
     if (tension >= 45) return "push_pull";
     return "question_deflection";
   }
-  // Group scene defaults
+
   if (tension >= 70) return "triangulation";
   if (tension >= 45) return "soft_accusation";
   if (tension >= 25) return "question_deflection";
   return "freeform";
 }
-
-// ─────────────────── per-agent roles ───────────────────
 
 function powerOf(
   agentId: string,
@@ -165,7 +141,6 @@ function powerOf(
       : partnerId.a
     : null;
 
-  // Outsider: in the scene but not paired with anyone else present
   if (!inCouple) {
     const anyPresentCoupled = couples.some(
       (c) =>
@@ -175,7 +150,6 @@ function powerOf(
     if (anyPresentCoupled) return "outsider";
   }
 
-  // Dominant vs submissive: look at trust deltas within the couple, if the partner is present
   if (partner && participants.some((p) => p.id === partner)) {
     const selfToPartner = rels.find(
       (r) => r.fromId === agentId && r.toId === partner,
@@ -185,8 +159,8 @@ function powerOf(
     );
     const selfTrust = selfToPartner?.trust ?? 50;
     const partnerTrust = partnerToSelf?.trust ?? 50;
-    if (selfTrust - partnerTrust >= 15) return "submissive"; // I trust them more than they trust me
-    if (partnerTrust - selfTrust >= 15) return "dominant"; // they need me more
+    if (selfTrust - partnerTrust >= 15) return "submissive";
+    if (partnerTrust - selfTrust >= 15) return "dominant";
   }
 
   return "equal";
@@ -201,7 +175,6 @@ function inferGoal(
   const base = (brain?.goal ?? "").trim();
   if (base.length > 0) return base;
 
-  // Fallback: scene-type specific defaults
   if (sceneType === "interview")
     return "justify what I've been doing to the audience";
   if (sceneType === "recouple")
@@ -226,7 +199,6 @@ function inferHiddenAgenda(
   participants: Agent[],
   tension: number,
 ): string | undefined {
-  // Only emit a hidden agenda when the vibe supports duplicity — low trust or high attraction elsewhere.
   const agentRels = rels.filter((r) => r.fromId === agent.id);
   const lowTrustTargets = agentRels.filter(
     (r) => r.trust < 40 && participants.some((p) => p.id === r.toId),
@@ -334,7 +306,7 @@ function inferSubtext(
       actual: `find a crack to insert myself into a couple`,
     };
   }
-  return { surface: goal, actual: goal }; // no duplicity: say what you mean
+  return { surface: goal, actual: goal };
 }
 
 function inferOpeningIntent(
@@ -389,12 +361,10 @@ export function buildPerAgentRoles(
   });
 }
 
-// ─────────────────── recent event + power dynamic ───────────────────
-
 function summarizeRecentEvent(recentScenes: Scene[], cast: Agent[]): string {
   const nameOf = (id?: string) =>
     cast.find((a) => a.id === id)?.name ?? id ?? "someone";
-  // Walk newest → oldest; pick the first meaningful thing.
+
   for (let i = recentScenes.length - 1; i >= 0; i--) {
     const s = recentScenes[i]!;
     for (const e of s.systemEvents) {
@@ -428,11 +398,6 @@ function summarizePowerDynamic(
   return "everyone in the scene is on roughly equal footing — leverage is contested";
 }
 
-// ─────────────────── beat planner ───────────────────
-
-// A pattern maps to an ordered intent skeleton. The planner assigns these
-// intents to participants based on role (dominant/submissive/outsider) and
-// openingIntent. Output: 4–8 PlannedBeats that the LLM fills with voice.
 const PATTERN_INTENT_SEQUENCES: Record<DialoguePattern, TurnIntent[]> = {
   freeform: ["flirt", "joke", "challenge", "reassure", "declare"],
   push_pull: ["flirt", "deflect", "test", "challenge", "escalate", "retreat"],
@@ -457,8 +422,6 @@ const PATTERN_INTENT_SEQUENCES: Record<DialoguePattern, TurnIntent[]> = {
   triangulation: ["flirt", "test", "accuse", "deflect", "escalate", "declare"],
 };
 
-// Loud beats get CAPS/shake styling in the prompt. Keyed to intents that
-// naturally justify a raised voice; gated below by tension threshold.
 const LOUD_INTENTS: Set<TurnIntent> = new Set([
   "escalate",
   "accuse",
@@ -472,8 +435,6 @@ function pickSpeaker(
   roles: PerAgentSceneRole[],
   lastSpeakerId: string | null,
 ): PerAgentSceneRole {
-  // Heuristic: assign intent to the role whose power+opening best fits it,
-  // while preferring speaker rotation (no same speaker twice in a row).
   const candidates = roles.filter((r) => r.agentId !== lastSpeakerId);
   const pool = candidates.length > 0 ? candidates : roles;
 
@@ -568,16 +529,8 @@ export function planBeats(
   desiredBeatCount: number,
 ): PlannedBeat[] {
   const sequence = PATTERN_INTENT_SEQUENCES[pattern];
-  // Ensemble scenes (minigame/challenge/recouple/bombshell) can push past the
-  // old 8-beat cap so 8+ cast members all get a planned slot. Lower bound 4
-  // keeps small scenes from degenerating into one-liners.
   const count = Math.max(4, Math.min(16, desiredBeatCount));
 
-  // Build the intent track so the FINAL beat is always the sequence's closing
-  // intent (declare/retreat/reveal depending on pattern). If desiredBeatCount
-  // exceeds the pattern length we fill the middle from the start of the
-  // sequence but keep the end-cap intact — otherwise a 7-beat confession
-  // cascade would end on "confess" instead of "declare".
   const intents: TurnIntent[] = [];
   const closing = sequence[sequence.length - 1]!;
   const interior = sequence.slice(0, -1);
@@ -606,7 +559,6 @@ export function planBeats(
     lastSpeakerId = role.agentId;
   });
 
-  // Cap loud beats at 2 per scene so CAPS/shake stays rare and earned.
   let loudCount = 0;
   for (const b of beats) {
     if (b.loud) {
@@ -617,8 +569,6 @@ export function planBeats(
 
   return beats;
 }
-
-// ─────────────────── entrypoint ───────────────────
 
 const SCENE_TYPE_BEAT_COUNT: Partial<Record<SceneType, number>> = {
   interview: 4,
@@ -641,11 +591,6 @@ const SCENE_TYPE_BEAT_COUNT: Partial<Record<SceneType, number>> = {
   challenge: 6,
 };
 
-// Ensemble scenes must cover every contestant — minigame/challenge/recouple/
-// bombshell declare "all cast speaks" in their prompt direction, and a 6-beat
-// plan strands half the room. Scale beat count with participant count so the
-// plan assigns at least one beat to every speaker, plus a couple of reactive
-// slots. Other scene types stay on their static base count.
 const ENSEMBLE_SCENE_TYPES = new Set<SceneType>([
   "minigame",
   "challenge",
@@ -681,12 +626,8 @@ export function buildSceneContext(args: BuildSceneContextArgs): SceneContext {
   };
 }
 
-// Exported so the prompt renderer can know which intents are "loud" for
-// conditional CAPS/shake directives without duplicating the set.
 export function isLoudIntent(intent: TurnIntent): boolean {
   return LOUD_INTENTS.has(intent);
 }
 
-// Silence unused-import noise — SystemEvent is referenced in types flowing
-// through `args.recentScenes` but not directly here after the walker is inlined.
 export type { SystemEvent };

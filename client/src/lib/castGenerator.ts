@@ -86,7 +86,6 @@ const COLOR_CLASSES = [
   'text-lime-400', 'text-red-400', 'text-purple-400', 'text-blue-400',
 ]
 
-// Archetype families — opposites attract for drama, same-family = low compatibility
 const ARCHETYPE_FAMILIES: Record<string, string> = {
   'the romantic': 'emotional',
   'the empath': 'emotional',
@@ -106,7 +105,6 @@ const ARCHETYPE_FAMILIES: Record<string, string> = {
   'the bombshell': 'social',
 }
 
-// Cross-family compatibility: how well do these family combos match?
 const FAMILY_COMPAT: Record<string, Record<string, number>> = {
   emotional:  { emotional: 25, strategic: 65, chaotic: 45, social: 55, reserved: 70 },
   strategic:  { emotional: 65, strategic: 20, chaotic: 55, social: 40, reserved: 50 },
@@ -121,7 +119,6 @@ export function baseCompatibility(archetypeA: string, archetypeB: string): numbe
   return FAMILY_COMPAT[famA]?.[famB] ?? 40
 }
 
-// Voice examples for prompt differentiation
 export const VOICE_EXAMPLES: Record<string, string> = {
   'loud and unapologetic': "Absolutely NOT, are you having a LAUGH? That's bare disrespectful, innit!",
   'soft-spoken but deadly honest': "I just think... you should know... she said she doesn't see a future with you.",

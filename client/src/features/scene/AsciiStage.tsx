@@ -49,11 +49,6 @@ export default function AsciiStage({
       return result;
     }
 
-    // Cluster partners side-by-side whenever we know the pairings. During a
-    // recouple, `announcedPairs` is revealed progressively as the host calls
-    // each pairing — that takes priority. Otherwise, fall back to current
-    // `couples` so post-recouple scenes still show partners standing
-    // together. Paired agents go on the back row, singletons on the front.
     const participantIds = new Set(participants.map((a) => a.id));
     const scenePairs = (
       announcedPairs && announcedPairs.length > 0
@@ -83,9 +78,6 @@ export default function AsciiStage({
       return result;
     }
 
-    // Beyond ~6 on stage, a single row forces sprites to overlap horizontally.
-    // Stagger into two rows: even indices on the back row (higher), odd on the
-    // front row (lower), so crowds read cleanly.
     const MAX_PER_ROW = 6;
     const rows = n > MAX_PER_ROW ? 2 : 1;
     const backCount = rows === 2 ? Math.ceil(n / 2) : n;

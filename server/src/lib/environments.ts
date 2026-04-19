@@ -154,8 +154,6 @@ export const SCENE_LABELS: Record<SceneType, { title: string; emoji: string }> =
     grand_finale: { title: "Grand Finale", emoji: "👑" },
   };
 
-// The first recouple of the season isn't actually a *re*-coupling — nobody
-// has paired up yet — so we label it "First Coupling" wherever it's shown.
 export const FIRST_COUPLING_LABEL = { title: "First Coupling", emoji: "💕" };
 
 /**

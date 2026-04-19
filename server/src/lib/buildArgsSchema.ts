@@ -10,17 +10,8 @@ import type {
 } from "@villa-ai/shared";
 import type { BuildArgs } from "./prompt.js";
 
-// Validate untrusted BuildArgs from the wire. The prompt builder itself
-// uses clip() on every interpolated string (strips control chars, caps
-// length) so this layer focuses on:
-//   1. shape correctness (no crash in the builder)
-//   2. array/string size caps (reject DoS-sized payloads early)
-//   3. enum membership for the fields the builder switches on
-//
-// Returns `null` on any violation. The caller translates that to a 400.
-
 const MAX_CAST = 30;
-const MAX_RELATIONSHIPS = 900; // 30 * 30
+const MAX_RELATIONSHIPS = 900;
 const MAX_MEMORIES_PER_AGENT = 50;
 const MAX_RECENT_SCENES = 10;
 const MAX_STRING = 2000;
@@ -167,10 +158,6 @@ function isStringArray(v: unknown, maxLen = 64, maxItems = 50): v is string[] {
   );
 }
 
-// Public entry point. Returns the narrowed BuildArgs or null if any
-// field fails validation. Null responses carry no detail on purpose —
-// developer tooling can inspect console logs, but the wire never tells
-// clients which field tripped the check.
 export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   if (!isObj(raw)) return null;
 
@@ -227,7 +214,6 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   if (!isShortString(raw.seasonTheme, MAX_THEME_LEN)) return null;
   if (typeof raw.sceneNumber !== "number" || raw.sceneNumber < 0) return null;
 
-  // Optional fields — if present, must be valid.
   if (raw.totalScenes !== undefined && typeof raw.totalScenes !== "number")
     return null;
   if (
@@ -327,9 +313,7 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   ) {
     return null;
   }
-  // sceneContext, recoupleScript, minigameDefinition originate client-side
-  // but reach the server over HTTP, so a crafted body can poison them —
-  // validate the narrow shape the prompt builder actually reads.
+
   if (
     raw.sceneContext !== undefined &&
     !isValidSceneContext(raw.sceneContext)
@@ -360,11 +344,6 @@ export function coerceBuildArgs(raw: unknown): BuildArgs | null {
   return raw as unknown as BuildArgs;
 }
 
-// Shape check for the opt-in viewer-sentiment map the client passes so the
-// prompt can inject a "VIEWER VIBES" block. Caps entry count and clamps each
-// value into a sane band — a crafted payload with 10k entries or negative
-// sentiment would crash neither the builder nor the LLM, but it would waste
-// tokens. Clamping invalid values would mask client bugs; we reject instead.
 function isValidViewerSentiment(v: unknown): boolean {
   if (!isObj(v)) return false;
   const entries = Object.entries(v);
@@ -533,9 +512,6 @@ function isValidMinigameDefinition(v: unknown): boolean {
   );
 }
 
-// Export the scene-type sentinel for the route handler to surface as a
-// client-visible error, separate from other validation failures (useful
-// because sceneType drives a lot of caller behavior).
 export function isValidSceneType(s: unknown): s is SceneType {
   return typeof s === "string" && VALID_SCENE_TYPES.has(s);
 }

@@ -1,12 +1,5 @@
 import type { ChallengeCategory } from "@villa-ai/shared";
 
-// Deterministic minigame library. Each entry is a specific game with
-// rules + win condition the host reads out. The prompt injects one of
-// these so the LLM doesn't invent a vague "let's do a challenge" scene —
-// it writes the dialogue AROUND the actual game mechanics.
-//
-// Grouped by category so the rotation (`learn_facts` ↔ `explore_attraction`
-// alternation in `seasonPlanner.nextChallengeCategory`) still drives variety.
 export interface MinigameTemplate {
   name: string;
   category: ChallengeCategory;

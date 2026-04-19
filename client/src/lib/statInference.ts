@@ -20,11 +20,6 @@ const EMOTION_DELTA: Record<Emotion, StatDelta> = {
   neutral: { trust: 0.8, attraction: 0.4, jealousy: 0, compatibility: 0.2 },
 };
 
-// Per-scene baseline that every pair-in-scene gets, regardless of
-// dialogue targeting. Lets non-focal pairs drift meaningfully over a
-// season instead of being stuck at their seed values. Slightly bumped
-// from 0.4/0.2/0/0.1 so "everyone in the bedroom scene" gains some
-// shared-moment trust even when none of them are the focal pair.
 const SHARED_SCENE_BASELINE: StatDelta = {
   trust: 0.8,
   attraction: 0.4,
@@ -84,15 +79,8 @@ const ACTION_MODIFIERS: Array<{ match: RegExp; delta: StatDelta }> = [
   },
 ];
 
-// Global multiplier applied to accumulated raw deltas before clamping.
-// Sized so a single dramatic beat ("Finn kissed Taya") visibly moves
-// the stat instead of drifting by a rounding.
 const INFERENCE_STRENGTH = 1.5;
 
-// Per-scene ceiling on how far ANY single pair can move in one scene.
-// Target: 3-4 focal scenes should push a couple to 50-60; a stable
-// pair across ~8 focal scenes reaches 80+. Bounded so a single scene
-// can't swing a rel from 0 to 100 alone, which would feel unearned.
 const PER_SCENE_CAP = {
   trust: 16,
   attraction: 16,
@@ -175,7 +163,6 @@ export function inferStatDeltas(
 
       const jealousyWeight = JEALOUSY_TRIGGER_WEIGHT[line.emotion] ?? 0;
       if (jealousyWeight > 0) {
-        // Coupled partner jealousy (classic: your partner flirts with someone)
         const speakerPartner = partnerOf(line.agentId);
         const targetPartner = partnerOf(target);
         if (speakerPartner && speakerPartner !== target) {
@@ -195,8 +182,6 @@ export function inferStatDeltas(
           });
         }
 
-        // Threat jealousy: anyone with high attraction (>35) toward the speaker
-        // or target who ISN'T part of this interaction feels threatened
         for (const observer of participantIds) {
           if (observer === line.agentId || observer === target) continue;
           if (observer === speakerPartner || observer === targetPartner)
@@ -247,7 +232,6 @@ export function inferStatDeltas(
     }
   }
 
-  // Couple bonus: being together slowly builds compatibility
   for (const c of couples) {
     if (participantIds.includes(c.a) && participantIds.includes(c.b)) {
       bump(c.a, c.b, {

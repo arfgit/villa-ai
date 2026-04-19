@@ -11,12 +11,6 @@ const UUID_RE =
   /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const MAX_LIMIT = 200;
 
-// GET /api/training — fetch training data from ALL sessions.
-// INTENTIONAL cross-session aggregation: this endpoint feeds the RL training
-// pipeline, which needs every session's season summary, season export, and
-// reward traces to learn across the population. Training entries are
-// non-PII gameplay data (cast archetypes, relationship deltas, scene
-// outcomes), so cross-session read is safe by design.
 trainingRouter.get("/", async (req, res) => {
   try {
     const parsed = parseInt(req.query.limit as string);
@@ -30,7 +24,6 @@ trainingRouter.get("/", async (req, res) => {
   }
 });
 
-// GET /api/training/session/:sessionId — fetch training data for a specific session
 trainingRouter.get("/session/:sessionId", async (req, res) => {
   try {
     if (!UUID_RE.test(req.params.sessionId!)) {
@@ -45,7 +38,6 @@ trainingRouter.get("/session/:sessionId", async (req, res) => {
   }
 });
 
-// POST /api/training — save/update training data for a session (one doc per session)
 trainingRouter.post("/", async (req, res) => {
   try {
     const sessionId = req.headers["x-session-id"] as string;

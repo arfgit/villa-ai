@@ -45,15 +45,9 @@ export type RelationshipMetric =
   | "jealousy"
   | "compatibility";
 
-// Popularity-band thresholds consumed by BOTH the client gravity engine and
-// the server prompt builder. Single source of truth — if either side moves
-// these, the VIEWER VIBES block would disagree with the gravity engine's
-// dead-band logic. Imports on both sides so drift is impossible.
 export const POPULARITY_FAVORITE_THRESHOLD = 70;
 export const POPULARITY_TARGET_THRESHOLD = 30;
-// Tighter bands used only for the named "gravity_threshold" dramatic-beat
-// events — fires once per direction per agent per season when an agent
-// truly locks into favorite/target status.
+
 export const POPULARITY_UP_THRESHOLD = 80;
 export const POPULARITY_DOWN_THRESHOLD = 20;
 
@@ -150,10 +144,7 @@ export interface SystemEvent {
   toId?: string;
   delta?: number;
   label: string;
-  // Required only for gravity_shift / gravity_threshold events so the reducer
-  // knows which relationship axis to move. Kept narrow (trust | attraction)
-  // because popularity should not touch compatibility (archetype baseline)
-  // or jealousy (peer-specific, not crowd-driven).
+
   metric?: Extract<RelationshipMetric, "trust" | "attraction">;
 }
 
@@ -284,21 +275,13 @@ export interface Episode {
   bombshellDatingUntilScene: number | null;
   casaAmorState: CasaAmorState | null;
   viewerSentiment: Record<string, number>;
-  // Tracks which agents have already crossed a popularity threshold in a given
-  // direction this season. Entries look like "sarah:up" or "zion:down" — once
-  // present, the corresponding gravity_threshold event does not refire for
-  // that agent/direction pair, so the big dramatic beat lands exactly once.
+
   crossedThresholds: string[];
-  // Running sum of absolute gravity deltas applied per (from→to|metric) key.
-  // Drives the saturation decay in applySocialGravity: once |cumulative| >= 10,
-  // further drips halve. Keys look like "sarah->zion|trust". Empty on fresh
-  // sessions; hydration defaults to {}.
+
   gravityCumulative: Record<string, number>;
   createdAt: number;
   updatedAt: number;
 }
-
-/* ── Casa Amor ── */
 
 export type CasaAmorPhase = "active" | "stickswitch" | "post";
 
@@ -327,8 +310,6 @@ export type CoupleArchetype =
 
 export type ChallengeCategory = "learn_facts" | "explore_attraction";
 
-/* ── Viewer Chat ── */
-
 export interface ViewerMessage {
   id: string;
   username: string;
@@ -345,7 +326,7 @@ export interface LlmDialogueLine {
   targetAgentId?: string;
   intent?: TurnIntent;
   beatIndex?: number;
-  // LLM-emitted flag: line is high-drama enough for viewer-chat reactions.
+
   quotable?: boolean;
 }
 
@@ -374,14 +355,6 @@ export interface LlmBatchSceneResponse {
   scenes: LlmSceneResponse[];
 }
 
-// Snapshot of a completed season persisted to the
-// `villaSessions/{id}/seasons/{number}` subcollection when the player
-// starts the next season in the same session. Preserves everything the
-// UI would need to replay or summarize a past season — scenes, final
-// relationships, winners, elimination order — so future seasons can
-// reference "Season 3 winners" without the session doc growing
-// unboundedly. Separate from SeasonExport, which is the JSON a user
-// downloads for offline training data.
 export interface SeasonArchive {
   sessionId: string;
   seasonNumber: number;
@@ -453,8 +426,6 @@ export interface RLExport {
   }>;
 }
 
-/* ── Villa Session & Training ── */
-
 export interface SeasonSummary {
   seasonNumber: number;
   theme: string;
@@ -484,10 +455,6 @@ export interface TrainingEntry {
   exportedAt: number;
   createdAt: number;
 }
-
-/* ── Prompt builder inputs (shared so the server can assemble a prompt from ── */
-/* ── what the client sends over the wire, rather than accepting a raw       ── */
-/* ── client-built prompt string that bypasses server validation).           ── */
 
 export interface RecouplePlanStep {
   chooserId: string;
@@ -543,42 +510,25 @@ export interface BuildArgs {
   sceneContext?: SceneContext;
   recoupleScript?: RecoupleScript;
   minigameDefinition?: MinigameDefinition;
-  // When prefetched, the outline the batch planner sketched for this scene.
-  // The prompt injects goal / tension / stakes / subtext as director notes
-  // so the LLM realizes an intentional beat instead of drifting.
+
   outline?: SceneOutline;
-  // Per-agent live-chat sentiment (0-100). Drives the "VIEWER VIBES" block
-  // the prompt injects so the LLM can reference viewer favorites/targets in
-  // dialogue. Optional — when undefined or all neutral, no block is emitted.
+
   viewerSentiment?: Record<string, number>;
 }
 
-/* ── Scene outlines (batch planner) ────────────────────────────────────── */
-
-// A scene outline is the pre-realization sketch produced by planBatch.
-// The batch generator takes a list of these and realizes each into a full
-// scene (dialogue + events). Outlines carry narrative intent — goal,
-// stakes, tension — so the batch reads as a planned arc rather than N
-// independent scenes glued together.
 export interface SceneOutline {
-  sequence: number; // 0-indexed position within the batch
+  sequence: number;
   type: SceneType;
-  participants: string[]; // agent ids expected to speak
-  location: SceneType; // scene location / environment (same enum as type)
-  goal: string; // what this scene accomplishes for the arc
-  tension: number; // 0-100 — how heated this beat should read
-  stakes: string; // what's at risk by scene end
-  subtext: string[]; // 0-3 things the dialogue implies but doesn't say outright
-  // If set, the sequence index this outline depends on. The realizer must
-  // generate the dependency first so the working state reflects its
-  // outcome before this outline's prompt is built. Simple linear deps for
-  // MVP (Scene[i] may depend on Scene[i-1]); full dep graph deferred.
+  participants: string[];
+  location: SceneType;
+  goal: string;
+  tension: number;
+  stakes: string;
+  subtext: string[];
+
   dependsOnSequence?: number;
 }
 
-// Lifecycle wrapper used by the queue / metrics. The scene field is
-// populated once realization completes; it stays undefined while the
-// outline is still in flight.
 export type ReadySceneStatus =
   | "planned"
   | "generating"
@@ -591,6 +541,6 @@ export interface ReadyScene {
   outline: SceneOutline;
   scene?: LlmSceneResponse;
   status: ReadySceneStatus;
-  // How many realization attempts have been made (for retry accounting).
+
   attempts: number;
 }

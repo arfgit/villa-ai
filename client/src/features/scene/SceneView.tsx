@@ -20,9 +20,6 @@ export default function SceneView() {
   const scene = episode.scenes.find((s) => s.id === currentSceneId);
   const currentLine = scene?.dialogue[currentLineIndex];
 
-  // ALL HOOKS MUST RUN BEFORE ANY EARLY RETURN — Rules of Hooks require the
-  // same call order every render. Keep useRef/useEffect up here; the scene
-  // may be undefined while we wait for the first scene to generate.
   const rootRef = useRef<HTMLDivElement>(null);
   const shakeKey =
     scene && currentLine && isLoudLine(currentLine)
@@ -33,7 +30,6 @@ export default function SceneView() {
     const el = rootRef.current;
     if (!el) return;
     el.classList.remove("animate-villa-shake");
-    // Force reflow so the browser restarts the animation on re-add.
     void el.offsetWidth;
     el.classList.add("animate-villa-shake");
   }, [shakeKey]);
@@ -88,10 +84,6 @@ export default function SceneView() {
   ];
   const showHost = sceneNumber === 1 || hostScenes.includes(scene.type);
 
-  // Recouple stage progression: count host "officially a couple" confirmations
-  // up to the currently-played line, then reveal that many pairings from the
-  // ordered couple_formed events. This lets the stage cluster each pair as the
-  // host calls them out, instead of showing all pairings at once from scene 0.
   const announcedPairs: Array<{ a: string; b: string }> = [];
   if (scene.type === "recouple") {
     const coupleFormedEvents = scene.systemEvents

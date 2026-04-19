@@ -14,14 +14,10 @@ export function classifyCoupleArchetype(
   const avgAttraction = ((ab?.attraction ?? 0) + (ba?.attraction ?? 0)) / 2
   const avgCompat = ((ab?.compatibility ?? 40) + (ba?.compatibility ?? 40)) / 2
 
-  // Mom & Dad: rock solid
   if (avgTrust > 65 && avgCompat > 60 && avgAttraction > 50) {
     return 'mom_and_dad'
   }
 
-  // Friend Couple: low attraction but decent trust. Only classify as friend-couple
-  // variants if at least ONE partner has a stronger pull to someone else — otherwise
-  // they're just a low-spark but loyal couple and should fall through to later checks.
   if (avgAttraction < 35 && avgTrust > 40) {
     const aHasExternalCrush = relationships
       .filter((r) => r.fromId === couple.a && r.toId !== couple.b)
@@ -32,12 +28,9 @@ export function classifyCoupleArchetype(
 
     if (aHasExternalCrush && bHasExternalCrush) return 'friend_couple'
     if (aHasExternalCrush || bHasExternalCrush) return 'friend_couple_incognito'
-    // else fall through: they're just quietly loyal
+
   }
 
-  // Star-Crossed: high attraction but haven't been coupled long or had bombshell threats.
-  // Walk scenes in reverse to find the most recent couple_formed — reference equality
-  // would break after any serialization round-trip (e.g. Firebase sync).
   let mostRecentFormedIdx = -1
   for (let i = scenes.length - 1; i >= 0; i--) {
     const formed = scenes[i]!.systemEvents.some((e) =>
@@ -54,15 +47,13 @@ export function classifyCoupleArchetype(
     return 'star_crossed'
   }
 
-  // Default to mom_and_dad if stats are generally positive
   if (avgAttraction > 45 && avgTrust > 45) return 'mom_and_dad'
 
   return 'star_crossed'
 }
 
 export function generateCasaAmorCast(existingIds: string[]): Agent[] {
-  // Generate enough for temptation but not so many they bloat the cast
-  // In the real show, most Casa Amor people get dumped at stick/switch
+
   const count = Math.min(4, Math.max(3, Math.floor(existingIds.length / 3)))
   return generateCast(count, existingIds)
 }
@@ -76,7 +67,6 @@ export function splitVilla(
   const casaAmorGroupIds: string[] = []
   const assigned = new Set<string>()
 
-  // Split couples across villas for drama
   for (const couple of couples) {
     if (assigned.has(couple.a) || assigned.has(couple.b)) continue
     if (villaGroupIds.length < half) {
@@ -90,7 +80,6 @@ export function splitVilla(
     assigned.add(couple.b)
   }
 
-  // Assign remaining singles
   for (const agent of activeCast) {
     if (assigned.has(agent.id)) continue
     if (villaGroupIds.length < half) {
@@ -117,7 +106,7 @@ export function computeStickOrSwitchChoices(
   for (const agent of activeCast) {
     const couple = couples.find((c) => c.a === agent.id || c.b === agent.id)
     if (!couple) {
-      // Singleton — always switch to the best available Casa Amor person
+
       const bestCasa = findBestCasaMatch(agent.id, casaAmorCast, relationships, takenCasaIds)
       if (bestCasa) {
         takenCasaIds.add(bestCasa)
@@ -186,7 +175,6 @@ export function resolveStickOrSwitch(
   const newCouples: Couple[] = []
   const chosenCasaIds = new Set<string>()
 
-  // Process choices
   for (const choice of choices) {
     if (choice.choice === 'switch' && choice.newPartnerId) {
       newCouples.push({ a: choice.ogIslanderId, b: choice.newPartnerId })
@@ -194,17 +182,15 @@ export function resolveStickOrSwitch(
     }
   }
 
-  // Stick pairs: reform original couple if BOTH stuck
   for (const original of originalCouples) {
     const choiceA = choices.find((c) => c.ogIslanderId === original.a)
     const choiceB = choices.find((c) => c.ogIslanderId === original.b)
     if (choiceA?.choice === 'stick' && choiceB?.choice === 'stick') {
       newCouples.push({ a: original.a, b: original.b })
     }
-    // If one stuck but the other switched, the sticker is now single (dramatic!)
+
   }
 
-  // Eliminate Casa Amor people who weren't chosen
   const eliminatedIds = casaAmorCast
     .filter((a) => !chosenCasaIds.has(a.id))
     .map((a) => a.id)

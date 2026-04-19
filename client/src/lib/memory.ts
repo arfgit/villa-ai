@@ -42,10 +42,6 @@ export async function retrieveMemories(
 ): Promise<AgentMemory[]> {
   if (memories.length === 0) return [];
 
-  // If the embeddings server is unreachable (local-only setups, or the
-  // server can't reach its embedding backend), fall back to
-  // recency+importance only. Memory retrieval degrades gracefully rather
-  // than blowing up the scene generation path.
   let queryEmbedding: number[] | null = null;
   try {
     queryEmbedding = await embed(query);
