@@ -1,5 +1,11 @@
 import { Router } from "express";
-import { saveSession, getSession } from "../services/firebase.js";
+import {
+  saveSession,
+  getSession,
+  saveSeasonArchive,
+  getSeasonArchive,
+  listSeasonArchives,
+} from "../services/firebase.js";
 
 export const sessionRouter = Router();
 
@@ -99,5 +105,116 @@ sessionRouter.get("/:id", async (req, res) => {
   } catch (err) {
     console.error("[session] fetch error:", err);
     res.status(500).json({ error: "Failed to fetch session" });
+  }
+});
+
+// Bound the season number we accept on the wire. 99 seasons is already
+// way past any realistic playthrough; a crafted payload with 10_000
+// wouldn't break anything critical but would let someone clutter the
+// subcollection with junk entries.
+const MAX_SEASON_NUMBER = 99;
+
+function isValidSeasonNumber(raw: string): number | null {
+  if (!/^\d{1,3}$/.test(raw)) return null;
+  const n = Number.parseInt(raw, 10);
+  if (!Number.isInteger(n) || n < 1 || n > MAX_SEASON_NUMBER) return null;
+  return n;
+}
+
+// POST /api/session/:id/seasons/:number — archive a completed season.
+// Called by the client when the player clicks "New Season" — the current
+// villa's scenes + final state snapshot into
+// `villaSessions/{id}/seasons/{number}` so the live session doc only
+// carries the IN-PROGRESS season. Past seasons stay accessible via GET
+// for UI replay without inflating every session read.
+sessionRouter.post("/:id/seasons/:number", async (req, res) => {
+  try {
+    if (!isValidSessionId(req.params.id)) {
+      res.status(400).json({ error: "Invalid session ID format" });
+      return;
+    }
+    const seasonNumber = isValidSeasonNumber(req.params.number);
+    if (seasonNumber === null) {
+      res
+        .status(400)
+        .json({ error: `Invalid season number (1..${MAX_SEASON_NUMBER})` });
+      return;
+    }
+    const archive = req.body as Record<string, unknown> | undefined;
+    if (!archive || typeof archive !== "object") {
+      res.status(400).json({ error: "Archive body required" });
+      return;
+    }
+    // Stamp the canonical session+season so the persisted doc isn't
+    // tied to whatever the client sent in its payload. This also lets
+    // listSeasonArchives's local-fallback filter match reliably.
+    const payload = {
+      ...archive,
+      sessionId: req.params.id,
+      seasonNumber,
+    };
+    await saveSeasonArchive(req.params.id, seasonNumber, payload);
+    res.json({ success: true, sessionId: req.params.id, seasonNumber });
+  } catch (err) {
+    console.error("[session] archive season error:", err);
+    res.status(500).json({ error: "Failed to archive season" });
+  }
+});
+
+// GET /api/session/:id/seasons/:number — fetch a single past season.
+// Reuses the share-by-URL model: anyone with the session UUID can read
+// its seasons. Used for replay / summary UI.
+sessionRouter.get("/:id/seasons/:number", async (req, res) => {
+  try {
+    if (!isValidSessionId(req.params.id)) {
+      res.status(400).json({ error: "Invalid session ID format" });
+      return;
+    }
+    const seasonNumber = isValidSeasonNumber(req.params.number);
+    if (seasonNumber === null) {
+      res
+        .status(400)
+        .json({ error: `Invalid season number (1..${MAX_SEASON_NUMBER})` });
+      return;
+    }
+    const data = await getSeasonArchive(req.params.id, seasonNumber);
+    if (!data) {
+      res.status(404).json({ error: "Season archive not found" });
+      return;
+    }
+    res.json(data);
+  } catch (err) {
+    console.error("[session] fetch season error:", err);
+    res.status(500).json({ error: "Failed to fetch season archive" });
+  }
+});
+
+// GET /api/session/:id/seasons — list all archived seasons for a session.
+// Returns lightweight metadata (season number + minimal stats) not full
+// scene lists, so the UI can render a "Past Seasons" picker cheaply.
+sessionRouter.get("/:id/seasons", async (req, res) => {
+  try {
+    if (!isValidSessionId(req.params.id)) {
+      res.status(400).json({ error: "Invalid session ID format" });
+      return;
+    }
+    const entries = await listSeasonArchives(req.params.id);
+    res.json({
+      sessionId: req.params.id,
+      seasons: entries.map(({ seasonNumber, data }) => {
+        const d = data as Record<string, unknown>;
+        return {
+          seasonNumber,
+          episodeTitle: d.episodeTitle ?? null,
+          seasonTheme: d.seasonTheme ?? null,
+          winnerCouple: d.winnerCouple ?? null,
+          archivedAt: d.archivedAt ?? null,
+          sceneCount: Array.isArray(d.scenes) ? d.scenes.length : 0,
+        };
+      }),
+    });
+  } catch (err) {
+    console.error("[session] list seasons error:", err);
+    res.status(500).json({ error: "Failed to list seasons" });
   }
 });

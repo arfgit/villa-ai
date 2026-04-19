@@ -224,6 +224,91 @@ export async function getTrainingForSession(
   );
 }
 
+/* ── Season Archives (past seasons within a session) ── */
+
+// Write a completed season's snapshot to
+// `villaSessions/{sessionId}/seasons/{seasonNumber}` so the session doc
+// itself never grows unboundedly as a user plays Season 4, 5, 6... The
+// per-season archive is the authoritative record of who was on the villa
+// that season, final relationships, scene list, and winner.
+export async function saveSeasonArchive(
+  sessionId: string,
+  seasonNumber: number,
+  data: unknown,
+): Promise<void> {
+  await ensureInit();
+  if (useFirestore && db) {
+    const { FieldValue } = await import("firebase-admin/firestore");
+    await db
+      .collection("villaSessions")
+      .doc(sessionId)
+      .collection("seasons")
+      .doc(String(seasonNumber))
+      .set({
+        ...(data as Record<string, unknown>),
+        archivedAt: FieldValue.serverTimestamp(),
+      });
+  } else {
+    localWrite(
+      "seasonArchives",
+      `${sessionId}__${seasonNumber}`,
+      data as Record<string, unknown>,
+    );
+  }
+}
+
+export async function getSeasonArchive(
+  sessionId: string,
+  seasonNumber: number,
+): Promise<unknown> {
+  await ensureInit();
+  if (useFirestore && db) {
+    const snap = await db
+      .collection("villaSessions")
+      .doc(sessionId)
+      .collection("seasons")
+      .doc(String(seasonNumber))
+      .get();
+    return snap.exists ? snap.data() : null;
+  }
+  return localRead("seasonArchives", `${sessionId}__${seasonNumber}`);
+}
+
+export async function listSeasonArchives(
+  sessionId: string,
+): Promise<Array<{ seasonNumber: number; data: unknown }>> {
+  await ensureInit();
+  if (useFirestore && db) {
+    const snap = await db
+      .collection("villaSessions")
+      .doc(sessionId)
+      .collection("seasons")
+      .orderBy("seasonNumber", "asc")
+      .get();
+    return snap.docs.map((d) => ({
+      seasonNumber: Number(d.id),
+      data: d.data(),
+    }));
+  }
+  // Local fallback: scan seasonArchives/ for entries whose sanitized id
+  // starts with this sessionId__. Sanitization replaces dashes in the
+  // UUID with underscores, so we reconstruct the filename prefix the
+  // same way sanitizeDocId does.
+  const prefix = `${sessionId}__`.replace(/[^a-zA-Z0-9_-]/g, "_");
+  const all = localQueryAll("seasonArchives") as Array<Record<string, unknown>>;
+  return all
+    .filter((entry) => {
+      const sid = entry.sessionId;
+      return typeof sid === "string" && sid === sessionId;
+    })
+    .map((entry) => ({
+      seasonNumber: Number(entry.seasonNumber),
+      data: entry,
+    }))
+    .sort((a, b) => a.seasonNumber - b.seasonNumber)
+    .filter((row) => Number.isFinite(row.seasonNumber));
+}
+
 /* ── Wisdom Archives (unchanged) ── */
 
 export async function saveWisdom(key: string, data: unknown): Promise<void> {

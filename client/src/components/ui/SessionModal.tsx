@@ -71,7 +71,7 @@ export default function SessionModal({ open, onClose }: Props) {
   // write. The store also guards these internally, but disabling the
   // UI gives the user immediate feedback instead of a delayed toast.
   const isGenerating = useVillaStore((s) => s.isGenerating);
-  const startNewEpisode = useVillaStore((s) => s.startNewEpisode);
+  const startNewVilla = useVillaStore((s) => s.startNewVilla);
 
   // Refs for focus management on the confirm dialog. We restore focus to
   // the most recent trigger element when the dialog closes, and move
@@ -248,19 +248,19 @@ export default function SessionModal({ open, onClose }: Props) {
   async function confirmNewSession() {
     setLoading(true);
     setError(null);
-    // startNewEpisode rotates the session UUID (archiving the current
+    // startNewVilla rotates the session UUID (archiving the current
     // villa to the server under its existing key) and boots a fresh
     // episode. It guards on isGenerating internally — we also disable
     // the button below to prevent the user reaching this path while a
     // scene is in flight.
     //
-    // try/finally: the store's startNewEpisode is defensive but a
+    // try/finally: the store's startNewVilla is defensive but a
     // downstream throw (e.g. createEpisode assert) would otherwise
     // leave `loading=true` forever and lock the modal. Always unwind
     // the spinner; surface the error message so the user sees why it
     // failed instead of a stuck "starting..." button.
     try {
-      await startNewEpisode();
+      await startNewVilla();
       setPendingNewSession(false);
       onClose();
     } catch (err) {
