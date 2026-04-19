@@ -1,13 +1,12 @@
 import express, { type Express } from "express";
 import cors from "cors";
 import { isFirebaseAvailable } from "./services/firebase.js";
-import { sceneRouter } from "./routes/scene.js";
 import { sessionRouter } from "./routes/session.js";
 import { trainingRouter } from "./routes/training.js";
-import { exportRouter } from "./routes/export.js";
 import { llmRouter } from "./routes/llm.js";
 import { wisdomRouter } from "./routes/wisdom.js";
 import { embeddingsRouter } from "./routes/embeddings.js";
+import { devRouter } from "./routes/dev.js";
 
 // Build the Express app. Separated from the process entry point (index.ts /
 // functions.ts) so the same app can run as a local http.Server (app.listen)
@@ -32,13 +31,17 @@ export function createApp(): Express {
   );
   app.use(express.json({ limit: "10mb" }));
 
-  app.use("/api/scene", sceneRouter);
   app.use("/api/session", sessionRouter);
   app.use("/api/training", trainingRouter);
-  app.use("/api/export", exportRouter);
   app.use("/api/llm", llmRouter);
   app.use("/api/wisdom", wisdomRouter);
   app.use("/api/embeddings", embeddingsRouter);
+  // Dev-only: runtime LLM provider toggle. Gated behind NODE_ENV so a
+  // production deploy doesn't expose mutation of global server state to
+  // any UUID holder.
+  if (process.env.NODE_ENV !== "production") {
+    app.use("/api/dev", devRouter);
+  }
 
   app.get("/api/health", async (_req, res) => {
     res.json({

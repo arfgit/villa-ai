@@ -123,6 +123,12 @@ function sanitizeDialogueText(raw: string): string {
   s = s.replace(LEADER_STRIP_RE, "");
   s = s.trimStart();
   s = s.replace(TRAILER_STRIP_RE, "").trimEnd();
+  // Strip stray caret / markdown-emphasis-like characters that LLMs
+  // occasionally emit at the start of stage directions (observed:
+  // "*^nervous laughter*"). These don't render as anything meaningful
+  // in our ChatBubble pipeline, they just look like corruption.
+  s = s.replace(/^[\^~`_]+/u, "").trimStart();
+  s = s.replace(/[\^~`_]+$/u, "").trimEnd();
   // Strip whole-line asterisk wrap. The LLM sometimes emits every
   // dialogue line as "*babe, I'm nervous...*" — the whole line renders
   // italic (Markdown emphasis) and reads as narration instead of speech.
@@ -135,6 +141,16 @@ function sanitizeDialogueText(raw: string): string {
     if (!inner.includes("*")) {
       s = inner.trim();
     }
+  }
+  // Final junk check — after stripping decorators, unwrapping asterisks,
+  // and trimming, if nothing real is left (pure asterisks, pure punctuation,
+  // or just whitespace), return empty. The caller's length-based filter
+  // then drops the whole dialogue line instead of rendering "***" or ".."
+  // as speech. Observed cases: Haiku emitting dialogue entries with only
+  // "***" in the text field when it meant to put the action elsewhere;
+  // JSON-repair leaving stubs like ";" or "" after truncation.
+  if (!/[\p{L}\p{N}]/u.test(s)) {
+    return "";
   }
   return s;
 }
@@ -334,10 +350,15 @@ export function parseAndValidate(
         agentId: d.agentId as string,
         text: cleanedText,
         emotion: asEmotion(d.emotion),
-        action:
-          typeof d.action === "string"
-            ? sanitizeDialogueText(d.action as string).slice(0, 80)
-            : undefined,
+        // action is optional stage direction ("leans forward", "gasps").
+        // If the sanitizer reduces it to empty (pure asterisks, caret-only,
+        // or pure punctuation), drop it entirely rather than letting a
+        // meaningless string render as an italic line above the dialogue.
+        action: (() => {
+          if (typeof d.action !== "string") return undefined;
+          const cleaned = sanitizeDialogueText(d.action).slice(0, 80);
+          return cleaned.length > 0 ? cleaned : undefined;
+        })(),
         targetAgentId:
           typeof d.targetAgentId === "string" && validIds.has(d.targetAgentId)
             ? (d.targetAgentId as string)

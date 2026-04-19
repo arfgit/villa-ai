@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { Agent, Relationship, RelationshipMetric } from "@/types";
+import type { Agent, Relationship, RelationshipMetric } from "@villa-ai/shared";
 import Tooltip from "@/components/ui/Tooltip";
 import { baseCompatibility } from "@/lib/castGenerator";
 
@@ -9,6 +9,13 @@ interface Props {
   metric: RelationshipMetric;
   onMetricChange: (m: RelationshipMetric) => void;
   eliminatedIds?: string[];
+  // Per-agent viewer sentiment from the live chat (0-100). Drives the
+  // popularity section — feeds back into islander voting + grand finale.
+  viewerSentiment?: Record<string, number>;
+  // Couples are used to aggregate agent-level popularity into couple
+  // popularity, which matters for the finale tiebreak and the public
+  // vote weighting.
+  couples?: Array<{ a: string; b: string }>;
 }
 
 const METRIC_LABELS: Record<RelationshipMetric, string> = {
@@ -107,6 +114,8 @@ export default function RelationshipMatrix({
   metric,
   onMetricChange,
   eliminatedIds = [],
+  viewerSentiment = {},
+  couples = [],
 }: Props) {
   const activeCast = cast.filter((c) => !eliminatedIds.includes(c.id));
   const displayCast = activeCast;
@@ -136,13 +145,18 @@ export default function RelationshipMatrix({
         </Tooltip>
       </div>
 
-      <div className="flex gap-1 mb-3">
+      <div
+        className="flex gap-1 mb-3"
+        role="group"
+        aria-label="Relationship metric"
+      >
         {(Object.keys(METRIC_LABELS) as RelationshipMetric[]).map((m) => (
           <Tooltip key={m} content={METRIC_TIPS[m]} side="bottom">
             <button
               onClick={() => onMetricChange(m)}
+              aria-pressed={metric === m}
               className={clsx(
-                "w-full px-1 py-1 text-[9px] uppercase border cursor-pointer",
+                "w-full px-1 py-1 text-[9px] uppercase border cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink",
                 metric === m
                   ? `border-villa-pink ${METRIC_COLORS[m]}`
                   : "border-villa-dim/40 text-villa-dim hover:border-villa-dim",
@@ -227,6 +241,124 @@ export default function RelationshipMatrix({
       <div className="mt-2 text-[8px] text-villa-dim text-center">
         rows = from, columns = to · hover a cell for why
       </div>
+
+      {displayCast.length > 0 && (
+        <div className="mt-3 border-t border-villa-pink/20 pt-2">
+          <div className="text-[10px] uppercase tracking-widest text-villa-sun/80 mb-1 flex items-center justify-between">
+            <span>░ popularity ░</span>
+            <Tooltip
+              content="Live-chat sentiment per islander (0-100). Rises when viewers react positively to their scenes; drops on smug/angry behavior. Feeds the islander vote + grand finale tiebreak."
+              side="bottom"
+            >
+              <span className="text-villa-dim hover:text-villa-sun cursor-help text-[9px]">
+                [?]
+              </span>
+            </Tooltip>
+          </div>
+          <ul className="space-y-0.5 text-[10px]">
+            {[...displayCast]
+              .sort(
+                (a, b) =>
+                  (viewerSentiment[b.id] ?? 50) - (viewerSentiment[a.id] ?? 50),
+              )
+              .map((agent) => {
+                const score = Math.round(viewerSentiment[agent.id] ?? 50);
+                const barWidth = Math.max(0, Math.min(100, Math.round(score)));
+                const tone =
+                  score >= 65
+                    ? "text-villa-sun"
+                    : score >= 45
+                      ? "text-villa-aqua"
+                      : "text-villa-love";
+                return (
+                  <li
+                    key={agent.id}
+                    className="flex items-center gap-2"
+                    aria-label={`${agent.name} viewer popularity ${score} of 100`}
+                  >
+                    <span className="w-14 truncate text-villa-dim">
+                      {agent.name}
+                    </span>
+                    <span
+                      role="progressbar"
+                      aria-valuenow={score}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={`${agent.name} popularity bar`}
+                      className="flex-1 h-1 bg-villa-dim/20 relative overflow-hidden"
+                    >
+                      <span
+                        aria-hidden="true"
+                        className={clsx(
+                          "absolute inset-y-0 left-0",
+                          score >= 55
+                            ? "bg-villa-sun/70"
+                            : score >= 40
+                              ? "bg-villa-aqua/60"
+                              : "bg-villa-love/60",
+                        )}
+                        style={{ width: `${barWidth}%` }}
+                      />
+                    </span>
+                    <span
+                      aria-hidden="true"
+                      className={clsx("w-8 text-right font-mono", tone)}
+                    >
+                      {score}
+                    </span>
+                  </li>
+                );
+              })}
+          </ul>
+
+          {couples.length > 0 && (
+            <div className="mt-2 pt-1.5 border-t border-villa-pink/10">
+              <div className="text-[9px] uppercase tracking-widest text-villa-dim/70 mb-1">
+                couple popularity
+              </div>
+              <ul className="space-y-0.5 text-[10px]">
+                {[...couples]
+                  .map((c) => {
+                    const a = cast.find((x) => x.id === c.a);
+                    const b = cast.find((x) => x.id === c.b);
+                    const score = Math.round(
+                      ((viewerSentiment[c.a] ?? 50) +
+                        (viewerSentiment[c.b] ?? 50)) /
+                        2,
+                    );
+                    return { a, b, score };
+                  })
+                  .filter((row) => row.a && row.b)
+                  .sort((x, y) => y.score - x.score)
+                  .map((row) => (
+                    <li
+                      key={`${row.a!.id}-${row.b!.id}`}
+                      className="flex items-center gap-2"
+                      aria-label={`${row.a!.name} and ${row.b!.name} couple popularity ${row.score} of 100`}
+                    >
+                      <span className="flex-1 truncate text-villa-dim">
+                        {row.a!.name} · {row.b!.name}
+                      </span>
+                      <span
+                        aria-hidden="true"
+                        className={clsx(
+                          "w-8 text-right font-mono",
+                          row.score >= 65
+                            ? "text-villa-sun"
+                            : row.score >= 45
+                              ? "text-villa-aqua"
+                              : "text-villa-love",
+                        )}
+                      >
+                        {row.score}
+                      </span>
+                    </li>
+                  ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   );
 }

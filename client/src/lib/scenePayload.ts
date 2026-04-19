@@ -17,7 +17,7 @@
 // fields to be arrays/strings — not non-empty, not element-validated —
 // so no server change is needed.
 
-import type { DialogueLine, Scene, SystemEvent } from "@/types";
+import type { DialogueLine, Scene, SystemEvent } from "@villa-ai/shared";
 
 // These are the 4 systemEvent types the prompt's recent-block filter
 // keeps. Matching the filter client-side lets us drop the other deltas

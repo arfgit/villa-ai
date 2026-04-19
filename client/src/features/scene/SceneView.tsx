@@ -161,7 +161,16 @@ export default function SceneView() {
         )}
       </div>
 
-      {episode.winnerCouple && isLastLine && (
+      {/*
+        Winners banner ONLY shows when the user is viewing the grand finale
+        scene (the one that actually crowned them). Previously, any scene
+        cycle while winnerCouple was set would render this banner, hiding
+        the scene's own [outcome] block for mid-season scenes — so flipping
+        back through history you'd see "★ winners ★" stuck over the scene-2
+        outcome. Gate on scene.type === "grand_finale" so the banner only
+        appears on its native scene.
+      */}
+      {episode.winnerCouple && isLastLine && scene.type === "grand_finale" && (
         <div className="border-2 border-villa-sun bg-villa-sun/10 p-3 text-center animate-villa-fadein">
           <div className="text-[10px] uppercase tracking-widest text-villa-sun mb-1">
             ★ winners of the villa ★

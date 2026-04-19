@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import type { SystemEvent } from '@/types'
+import type { SystemEvent } from '@villa-ai/shared'
 
 interface Props {
   event: SystemEvent

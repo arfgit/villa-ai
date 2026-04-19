@@ -21,7 +21,7 @@
 //   - Neutral emotion. A fallback emits "neutral" across the board so
 //     the next prompt doesn't react to fake high drama.
 
-import type { Agent, LlmSceneResponse } from "@/types";
+import type { Agent, LlmSceneResponse } from "@villa-ai/shared";
 import type { SceneOutline } from "@villa-ai/shared";
 
 // Short, context-free line templates. Picked deterministically by

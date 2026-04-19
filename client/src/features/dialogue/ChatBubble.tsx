@@ -1,5 +1,5 @@
 import clsx from "clsx";
-import type { Agent, DialogueLine, Emotion, Host } from "@/types";
+import type { Agent, DialogueLine, Emotion, Host } from "@villa-ai/shared";
 import { isLoudLine } from "@/lib/dialogueIntensity";
 
 interface Props {

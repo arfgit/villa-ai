@@ -13,7 +13,7 @@ import type {
   RewardEvent,
   ViewerMessage,
   Couple,
-} from "@/types";
+} from "@villa-ai/shared";
 import { HOST } from "@/data/host";
 import { sampleSeasonCast } from "@/data/castPool";
 import { getSceneLabel } from "@/data/environments";
@@ -62,8 +62,8 @@ import {
   resolveStickOrSwitch,
   classifyCoupleArchetype,
 } from "@/lib/casaAmor";
-import type { CasaAmorState, StickOrSwitchChoice } from "@/types";
-import type { ChallengeCategory } from "@/types";
+import type { CasaAmorState, StickOrSwitchChoice } from "@villa-ai/shared";
+import type { ChallengeCategory } from "@villa-ai/shared";
 import {
   generateViewerReactions,
   updateViewerSentiment,
@@ -84,7 +84,11 @@ import {
   loadSessionById,
   saveTrainingData,
 } from "@/lib/api";
-import { SESSION_KEY } from "@/lib/sessionId";
+import {
+  SESSION_KEY,
+  rotateSessionId,
+  touchRecentSession,
+} from "@/lib/sessionId";
 import { newId } from "@/lib/ids";
 import {
   extractInlineAction,
@@ -106,9 +110,9 @@ interface UiState {
 }
 
 // Prefetch telemetry. Kept lightweight (counts + timings) — not a
-// structured metrics pipeline. Read by devtools or a future debug
-// panel. Counts are cumulative across the episode; reset on
-// startNewEpisode.
+// structured metrics pipeline. Currently surfaced only via console.log
+// in the prefetch runner. Counts are cumulative across the episode;
+// reset on startNewEpisode.
 export interface PrefetchMetrics {
   batchesStarted: number;
   batchesCompleted: number;
@@ -142,7 +146,7 @@ interface VillaState {
   viewerMessages: ViewerMessage[];
   ui: UiState;
 
-  startNewEpisode: () => void;
+  startNewEpisode: () => Promise<void>;
   generateScene: (type?: SceneType) => Promise<void>;
   triggerPrefetch: (inProgressSceneType?: SceneType) => void;
   advanceLine: () => void;
@@ -225,7 +229,10 @@ const MAX_ARCHIVED_PER_AGENT = 6;
 const WISDOM_IMPORTANCE_THRESHOLD = 7;
 const MAX_META_WISDOM = 10;
 
-function archiveSeasonWisdom(episode: Episode, cast: Agent[]): void {
+async function archiveSeasonWisdom(
+  episode: Episode,
+  cast: Agent[],
+): Promise<void> {
   const archive = loadWisdomArchive();
   const meta = loadMetaWisdom();
   const allSeasonReflections: AgentMemory[] = [];
@@ -266,9 +273,10 @@ function archiveSeasonWisdom(episode: Episode, cast: Agent[]): void {
   meta.push(...topMeta);
   while (meta.length > MAX_META_WISDOM) meta.shift();
 
-  // Flush to backend. Fire-and-forget; the in-memory cache has already been
-  // updated in-place so createEpisode below sees the new wisdom immediately.
-  persistWisdom();
+  // Flush to backend. Awaited so callers (notably startNewEpisode's UUID
+  // rotation) can guarantee the archive write lands on the OLD session
+  // before the client starts talking to the server as a NEW session.
+  await persistWisdom();
 
   autoSaveTrainingData(episode, cast);
 }
@@ -876,6 +884,18 @@ function syncToServer(state: { episode: Episode; cast: Agent[] }): void {
     ...state.episode,
     brains: stripEmbeddings(state.episode.brains),
   };
+  // Refresh the recent-sessions label with current episode context so
+  // past-session entries in the SessionModal show "Season 3 — 12 scenes"
+  // instead of just a short UUID. Local-only; no network cost.
+  const id = localStorage.getItem(SESSION_KEY);
+  if (id) {
+    const scenes = state.episode.scenes.length;
+    const theme = state.episode.seasonTheme.split("\n")[0]?.slice(0, 40) ?? "";
+    const label = theme
+      ? `Season ${state.episode.number} · ${scenes} scenes · ${theme}`
+      : `Season ${state.episode.number} · ${scenes} scenes`;
+    touchRecentSession(id, label);
+  }
   saveSessionToServer(payload, state.cast).catch(() => {
     // Retry once after 2s if server wasn't ready
     setTimeout(() => {
@@ -946,14 +966,63 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   viewerMessages: [],
   ui: { ...DEFAULT_UI },
 
-  startNewEpisode: () => {
+  startNewEpisode: async () => {
     const prev = get();
-    archiveSeasonWisdom(prev.episode, prev.cast);
-    // archiveSeasonWisdom already persists the updated wisdom to the backend
-    // fire-and-forget. Don't re-hydrate here — that would race the save and
-    // could clobber the cache with stale pre-archive server state.
+    // Race guard — refuse to start a new episode while a scene is still
+    // generating. Without this, an in-flight generateScene's commit would
+    // read getSessionId() AFTER rotation and write the old-episode scene
+    // onto the brand-new session, corrupting it. Block at the entry and
+    // let the user retry when the current scene settles.
+    if (prev.isGenerating) {
+      set({
+        lastError:
+          "Wait for the current scene to finish before starting a new episode.",
+      });
+      return;
+    }
+    // Step 1 — archive wisdom + training data to the OLD session UUID. We
+    // await persistWisdom inside archiveSeasonWisdom so the write lands
+    // before we change identities; otherwise the rotate below would
+    // route it to the new (empty) session instead.
+    try {
+      await archiveSeasonWisdom(prev.episode, prev.cast);
+    } catch (err) {
+      console.warn(
+        "[new-episode] wisdom archive failed, continuing anyway:",
+        err instanceof Error ? err.message : err,
+      );
+    }
     refreshTrainingCache().catch(() => {});
-    // Clear the prefetch in-flight guard so the new episode's cold-start
+
+    // Step 2 — rotate the session UUID. This is the core of the "never
+    // overwrite an existing session" fix: the old episode stays intact
+    // on the server under its old UUID, and the new episode gets a
+    // fresh, collision-verified UUID of its own. If rotation fails
+    // (server unreachable, collision retry exhausted), we surface the
+    // error via lastError and BAIL — silently continuing on the old
+    // UUID would reintroduce the overwrite bug we're fixing.
+    try {
+      await rotateSessionId();
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[new-episode] UUID rotation failed:", msg);
+      set({
+        lastError: `Could not start a new episode — session rotation failed (${msg}). Check your connection and try again.`,
+      });
+      return;
+    }
+
+    // Reset the season counter so the new session starts at Season 1. Without
+    // this, createEpisode below would increment off the PREVIOUS session's
+    // counter (e.g. a user on Season 3 who rotates would see "Season 4" on a
+    // brand-new villa with a different cast — confusing since the new UUID
+    // has no history of seasons 1–3). restoreFromServer / loadSessionByKey
+    // still re-align the counter when loading an existing session, so this
+    // reset only affects the truly-new-villa path.
+    seasonCounter = 0;
+
+    // Step 3 — reset in-memory state for the fresh episode. The prefetch
+    // single-flight guard needs clearing so the new episode's cold-start
     // batch isn't blocked by a lingering flag from the previous episode.
     // Any pending resolve from the old episode is still fenced by the
     // episode-id check inside triggerPrefetch.
@@ -971,6 +1040,8 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       viewerMessages: [],
       ui: { ...s.ui, isPaused: false },
     }));
+    // Step 4 — first save against the NEW UUID. This is a fresh
+    // session on the server; POST /api/session will create it.
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 
@@ -978,9 +1049,9 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   //   1. generateScene POST-COMMIT (end of the scene action). Fresh state.
   //   2. useScenePlayback on line 0 — fires when a scene starts playing,
   //      belt-and-braces if the post-commit trigger didn't keep up.
-  // (A third call site inside generateScene pre-LLM was removed — on
-  // single-model Ollama it pipelined prefetch prompts behind the live
-  // scene and halved its tokens-per-second.)
+  // (A third pre-LLM site was removed to avoid prefetch racing with
+  // the in-progress live generate — the overlap wastes capacity on any
+  // provider that bottlenecks on single-model/single-connection.)
   //
   // Idempotent: the runner has a single-flight guard, and planPrefetch
   // returns null when the queue is already deep enough.
@@ -1048,6 +1119,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       relationships: state.episode.relationships,
       emotions: state.episode.emotions,
       couples: state.episode.couples,
+      eliminatedIds: state.episode.eliminatedIds,
       seasonTheme: state.episode.seasonTheme,
       bombshellsIntroduced: state.episode.bombshellsIntroduced,
       bombshellPool: state.episode.bombshellPool,
@@ -1161,16 +1233,43 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     // reward-date path but picks the focal couple from current tension instead
     // of a recent challenge win. Without this, the LLM treats "date" as an
     // ensemble scene and drama spills in from the rest of the villa.
+    //
+    // ROTATION: tension-rank alone would pick the same highest-tension couple
+    // for every date night (observed: 4 consecutive date nights with the
+    // same pair). We penalize couples who've been on a date in the last 3
+    // dates — they get re-ranked to the bottom of the order so someone
+    // else gets screen time. A couple who hasn't had a date yet is always
+    // preferred over one who has, regardless of tension.
     if (
       sceneType === "date" &&
       !isRewardDate &&
       initial.episode.couples.length > 0
     ) {
       const rels = initial.episode.relationships;
+      const recentDates = initial.episode.scenes
+        .filter((s) => s.type === "date")
+        .slice(-3);
+      const scenesSinceDateByPair = new Map<string, number>();
+      // Walk recent dates newest-first and record how recently each pair
+      // has been featured. Missing pairs get Infinity → always preferred.
+      for (let i = recentDates.length - 1; i >= 0; i--) {
+        const scene = recentDates[i]!;
+        const key = [...scene.participantIds].sort().join("|");
+        if (!scenesSinceDateByPair.has(key)) {
+          scenesSinceDateByPair.set(key, recentDates.length - 1 - i);
+        }
+      }
       const ranked = [...initial.episode.couples].sort((x, y) => {
-        const xScore = tensionForCouple(x, rels);
-        const yScore = tensionForCouple(y, rels);
-        return yScore - xScore;
+        const xKey = [x.a, x.b].sort().join("|");
+        const yKey = [y.a, y.b].sort().join("|");
+        const xRecency = scenesSinceDateByPair.get(xKey) ?? Infinity;
+        const yRecency = scenesSinceDateByPair.get(yKey) ?? Infinity;
+        // Larger recency (longer since their last date) wins. Within the
+        // same recency bucket, higher tension still wins — so Never-Dated
+        // couples are ordered by tension, and couples tied on last date are
+        // also ordered by tension.
+        if (xRecency !== yRecency) return yRecency - xRecency;
+        return tensionForCouple(y, rels) - tensionForCouple(x, rels);
       });
       const focal = ranked[0]!;
       forcedParticipants = [focal.a, focal.b];
@@ -1453,8 +1552,11 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       }
 
       // Pre-compute elimination for ceremony scenes so the LLM can write the drama
-      let ceremonyElim: { eliminatedIds: string[]; narrative: string } | null =
-        null;
+      let ceremonyElim: {
+        eliminatedIds: string[];
+        narrative: string;
+        reason?: string;
+      } | null = null;
       const isCeremonyScene =
         sceneType === "public_vote" ||
         sceneType === "islander_vote" ||
@@ -1475,6 +1577,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
             activeCast,
             initial.episode.couples,
             initial.episode.relationships,
+            initial.episode.viewerSentiment,
           );
         } else if (sceneType === "producer_twist") {
           ceremonyElim = producerIntervention(
@@ -1796,7 +1899,13 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           delta: e.delta,
           label: e.label,
         })),
-        outcome: llm.outcome,
+        // Append the elimination-reason blurb when a ceremony vote decided
+        // this scene's outcome. Gives the UI a concrete "why they went home"
+        // (e.g. "received 4 of 7 islander votes — viewer sentiment had
+        // turned against them") without relying on the LLM to mention it.
+        outcome: ceremonyElim?.reason
+          ? `${llm.outcome}\n\n${ceremonyElim.reason}`
+          : llm.outcome,
         createdAt: Date.now(),
         challengeCategory,
         // Queued scenes were prefetched via the batch path without a
@@ -2629,6 +2738,19 @@ export async function restoreFromServer(): Promise<boolean> {
 export async function loadSessionByKey(sessionId: string): Promise<boolean> {
   if (!isValidSessionId(sessionId)) {
     console.warn("[restore] refusing to load invalid sessionId");
+    return false;
+  }
+  // Race guard — if a scene is currently generating, refuse the swap. An
+  // in-flight generateScene reads getSessionId() at commit time; if we
+  // rewrite localStorage to a new UUID mid-generation, the next commit
+  // lands on the WRONG session, corrupting whichever one the user just
+  // tried to load. Surface the refusal via lastError so the UI explains
+  // it (rather than silently doing nothing).
+  if (useVillaStore.getState().isGenerating) {
+    useVillaStore.setState({
+      lastError:
+        "Wait for the current scene to finish generating before switching sessions.",
+    });
     return false;
   }
   // Loading a different session means the wisdom cache (per-session on the

@@ -1,4 +1,4 @@
-import type { Episode, Agent, SeasonExport, RLExport, Couple } from '@/types'
+import type { Episode, Agent, SeasonExport, RLExport, Couple } from '@villa-ai/shared'
 
 export function buildSeasonExport(episode: Episode, _cast: Agent[]): SeasonExport {
   const eliminationOrder: SeasonExport['season']['eliminationOrder'] = []

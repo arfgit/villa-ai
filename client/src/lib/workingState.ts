@@ -25,7 +25,7 @@ import type {
   Relationship,
   Scene,
   SceneType,
-} from "@/types";
+} from "@villa-ai/shared";
 
 export interface WorkingState {
   scenes: Scene[];
@@ -174,9 +174,28 @@ function applyEventToState(
     return;
   }
 
-  // minigame_win / challenge_win / elimination-like events don't mutate
-  // the prefetch-relevant state here — the store handles those at real
-  // commit time with side effects (rewards, eliminations) that the
-  // prefetcher is explicitly designed to avoid speculating about (that's
-  // why STOP_AFTER_TYPES exists).
+  // minigame_win / challenge_win don't mutate prefetch-relevant state
+  // directly (rewards are delivered as side effects by the real commit
+  // handler). No-op here — the working state's scenes.push below still
+  // captures that the scene happened so sceneNumber advances correctly.
+}
+
+// Apply a deterministic elimination to the working state. Extension
+// point: wiring this into runPrefetch is the prerequisite for adding
+// islander_vote / public_vote to BATCHABLE_TYPES — those ceremonies
+// compute their eliminated agent OUTSIDE the LLM via eliminationEngine,
+// so the post-ceremony working state is predictable from committed
+// inputs alone.
+export function applyElimination(
+  state: WorkingState,
+  eliminatedId: string,
+): WorkingState {
+  if (state.eliminatedIds.includes(eliminatedId)) return state;
+  state.eliminatedIds = [...state.eliminatedIds, eliminatedId];
+  // Dissolve any couple the eliminated agent was in — mirrors the
+  // store's real commit behavior.
+  state.couples = state.couples.filter(
+    (c) => c.a !== eliminatedId && c.b !== eliminatedId,
+  );
+  return state;
 }

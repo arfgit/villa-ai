@@ -1,26 +1,45 @@
-import type { Agent, DialogueLine, AgentMemory, RewardEvent } from '@/types'
-import { formatRewardTrajectory, sumRewards } from './rewards'
+import type {
+  Agent,
+  DialogueLine,
+  AgentMemory,
+  RewardEvent,
+} from "@villa-ai/shared";
+import { formatRewardTrajectory, sumRewards } from "./rewards";
 
-// Same-origin by default — Vite dev proxies /ollama → localhost:11434.
-const DEFAULT_HOST = '/ollama'
-const DEFAULT_MODEL = 'qwen2.5:14b'
+// ⚠️  Architectural outlier: unlike embeddings.ts and scene generation
+// (which route through /api/* on the Node server), memory extraction
+// currently talks to Ollama DIRECTLY through Vite's dev-only /ollama
+// proxy. This means memory extraction silently no-ops in production
+// deploys (there is no /ollama rewrite on Firebase Hosting). Fixing
+// this requires a server route that wraps extractObservationsForScene
+// / reflectAcrossAgents on top of the shared provider chain. See the
+// dead-code audit for the full migration note.
+const DEFAULT_HOST = "/ollama";
+const DEFAULT_MODEL = "llama3.2";
 
 function getHost(): string {
-  return (import.meta.env.VITE_OLLAMA_HOST as string | undefined) ?? DEFAULT_HOST
+  return (
+    (import.meta.env.VITE_OLLAMA_HOST as string | undefined) ?? DEFAULT_HOST
+  );
 }
 
 function getModel(): string {
-  return (import.meta.env.VITE_OLLAMA_MODEL as string | undefined) ?? DEFAULT_MODEL
+  return (
+    (import.meta.env.VITE_OLLAMA_MODEL as string | undefined) ?? DEFAULT_MODEL
+  );
 }
 
-async function ollamaJsonCall(prompt: string, temperature = 0.85): Promise<unknown> {
+async function ollamaJsonCall(
+  prompt: string,
+  temperature = 0.85,
+): Promise<unknown> {
   const res = await fetch(`${getHost()}/api/generate`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model: getModel(),
       prompt,
-      format: 'json',
+      format: "json",
       stream: false,
       options: {
         temperature,
@@ -29,75 +48,96 @@ async function ollamaJsonCall(prompt: string, temperature = 0.85): Promise<unkno
         repeat_penalty: 1.15,
         presence_penalty: 0.3,
         num_predict: 2048,
+        // Pin to match the server-side scene-gen runner. Without this,
+        // Ollama spins up a separate runner sized to its VRAM-based
+        // default (262144 on 48GB M3 Max), which lands most layers on
+        // CPU and tanks throughput. Keep in sync with server's NUM_CTX.
+        num_ctx: 8192,
       },
     }),
-  })
+  });
   if (!res.ok) {
-    const body = await res.text().catch(() => '')
-    throw new Error(`Ollama ${res.status}: ${body || res.statusText}`)
+    const body = await res.text().catch(() => "");
+    // Cap the body snippet for consistency with the server-side copy —
+    // Ollama error text can run long (stack traces, device info) and
+    // that bloats console errors + browser devtools without helping
+    // the user debug.
+    const snippet = (body || res.statusText).slice(0, 200);
+    throw new Error(`Ollama ${res.status}: ${snippet}`);
   }
-  const data = (await res.json()) as { response?: string; error?: string }
-  if (data.error) throw new Error(`Ollama error: ${data.error}`)
-  if (!data.response) throw new Error('Ollama response missing "response" field')
-  return JSON.parse(data.response)
+  const data = (await res.json()) as { response?: string; error?: string };
+  if (data.error) throw new Error(`Ollama error: ${data.error.slice(0, 200)}`);
+  if (!data.response)
+    throw new Error('Ollama response missing "response" field');
+  return JSON.parse(data.response);
 }
 
 interface RawObservation {
-  agentId: string
-  content: string
-  importance: number
-  relatedAgentIds: string[]
+  agentId: string;
+  content: string;
+  importance: number;
+  relatedAgentIds: string[];
 }
 
 export interface ExtractedObservation {
-  agentId: string
-  content: string
-  importance: number
-  relatedAgentIds: string[]
+  agentId: string;
+  content: string;
+  importance: number;
+  relatedAgentIds: string[];
 }
 
 export async function extractObservationsForScene(args: {
-  participants: Agent[]
-  dialogue: DialogueLine[]
-  outcome: string
-  prevMemoriesByAgent?: Record<string, AgentMemory[]>
-  policiesByAgent?: Record<string, string>
+  participants: Agent[];
+  dialogue: DialogueLine[];
+  outcome: string;
+  prevMemoriesByAgent?: Record<string, AgentMemory[]>;
+  policiesByAgent?: Record<string, string>;
 }): Promise<ExtractedObservation[]> {
-  const { participants, dialogue, outcome, prevMemoriesByAgent, policiesByAgent } = args
-  const validIds = new Set(participants.map((p) => p.id))
+  const {
+    participants,
+    dialogue,
+    outcome,
+    prevMemoriesByAgent,
+    policiesByAgent,
+  } = args;
+  const validIds = new Set(participants.map((p) => p.id));
 
   const dialogueBlock = dialogue
     .map((d) => {
-      const speaker = participants.find((p) => p.id === d.agentId)?.name ?? d.agentId
+      const speaker =
+        participants.find((p) => p.id === d.agentId)?.name ?? d.agentId;
       const target = d.targetAgentId
         ? ` (to ${participants.find((p) => p.id === d.targetAgentId)?.name ?? d.targetAgentId})`
-        : ''
-      return `${speaker}${target}: "${d.text}"`
+        : "";
+      return `${speaker}${target}: "${d.text}"`;
     })
-    .join('\n')
+    .join("\n");
 
-  const perAgentBlocks = participants.map((p) => {
-    const recent = (prevMemoriesByAgent?.[p.id] ?? []).slice(-4)
-    const priorList = recent.length > 0
-      ? recent.map((m) => `    • ${m.content}`).join('\n')
-      : '    • (no prior observations yet)'
-    const policy = policiesByAgent?.[p.id]?.trim()
-    const policyLine = policy ? `\n  Current strategy: ${policy}` : ''
-    return `### ${p.name} (${p.id})
+  const perAgentBlocks = participants
+    .map((p) => {
+      const recent = (prevMemoriesByAgent?.[p.id] ?? []).slice(-4);
+      const priorList =
+        recent.length > 0
+          ? recent.map((m) => `    • ${m.content}`).join("\n")
+          : "    • (no prior observations yet)";
+      const policy = policiesByAgent?.[p.id]?.trim();
+      const policyLine = policy ? `\n  Current strategy: ${policy}` : "";
+      return `### ${p.name} (${p.id})
   Archetype: ${p.archetype}
   Personality: ${p.personality}${policyLine}
   Their prior observations (DO NOT REPEAT these, generate something new):
-${priorList}`
-  }).join('\n\n')
+${priorList}`;
+    })
+    .join("\n\n");
 
   const FRAMINGS = [
-    'What did each participant LEARN about someone else this scene?',
-    'What did each participant FEEL most strongly when watching the others this scene?',
-    'What SPECIFIC moment in the dialogue stuck with each participant, and why does it matter to them?',
-    'What did each participant realize about THEMSELVES from how they reacted this scene?',
-    'What suspicion, affection, or concern did each participant pick up on this scene?',
-  ]
-  const framing = FRAMINGS[Math.floor(Math.random() * FRAMINGS.length)]!
+    "What did each participant LEARN about someone else this scene?",
+    "What did each participant FEEL most strongly when watching the others this scene?",
+    "What SPECIFIC moment in the dialogue stuck with each participant, and why does it matter to them?",
+    "What did each participant realize about THEMSELVES from how they reacted this scene?",
+    "What suspicion, affection, or concern did each participant pick up on this scene?",
+  ];
+  const framing = FRAMINGS[Math.floor(Math.random() * FRAMINGS.length)]!;
 
   const prompt = `You are extracting PERSONAL observations from a parody Love Island scene. Each contestant has their own character filter — they will notice different things from the same scene based on who they are and what strategy they're currently running.
 
@@ -133,71 +173,90 @@ Respond ONLY with valid JSON in this exact shape:
   ]
 }
 
-Generate 1-2 observations per participant. Every participant must appear at least once. Do not invent participants who aren't in the list above.`
+Generate 1-2 observations per participant. Every participant must appear at least once. Do not invent participants who aren't in the list above.`;
 
-  const data = (await ollamaJsonCall(prompt, 0.95)) as { observations?: RawObservation[] }
-  const raw = Array.isArray(data.observations) ? data.observations : []
+  const data = (await ollamaJsonCall(prompt, 0.95)) as {
+    observations?: RawObservation[];
+  };
+  const raw = Array.isArray(data.observations) ? data.observations : [];
 
   return raw
-    .filter((o) => typeof o.agentId === 'string' && validIds.has(o.agentId))
-    .filter((o) => typeof o.content === 'string' && o.content.length > 0)
+    .filter((o) => typeof o.agentId === "string" && validIds.has(o.agentId))
+    .filter((o) => typeof o.content === "string" && o.content.length > 0)
     .map((o) => ({
       agentId: o.agentId,
       content: String(o.content).slice(0, 280),
-      importance: typeof o.importance === 'number' ? Math.max(1, Math.min(10, Math.round(o.importance))) : 5,
+      importance:
+        typeof o.importance === "number"
+          ? Math.max(1, Math.min(10, Math.round(o.importance)))
+          : 5,
       relatedAgentIds: Array.isArray(o.relatedAgentIds)
-        ? o.relatedAgentIds.filter((id: unknown): id is string => typeof id === 'string' && validIds.has(id))
+        ? o.relatedAgentIds.filter(
+            (id: unknown): id is string =>
+              typeof id === "string" && validIds.has(id),
+          )
         : [],
-    }))
+    }));
 }
 
 interface RawReflection {
-  agentId: string
-  insight: string
-  importance: number
-  newGoal?: string
-  newPolicy?: string
+  agentId: string;
+  insight: string;
+  importance: number;
+  newGoal?: string;
+  newPolicy?: string;
 }
 
 export interface ExtractedReflection {
-  agentId: string
-  insight: string
-  importance: number
-  newGoal: string
-  newPolicy: string
+  agentId: string;
+  insight: string;
+  importance: number;
+  newGoal: string;
+  newPolicy: string;
 }
 
 export async function reflectAcrossAgents(args: {
-  cast: Agent[]
-  memoriesByAgent: Record<string, AgentMemory[]>
-  currentGoals: Record<string, string>
-  currentPolicies: Record<string, string>
-  rewardTrajectories: Record<string, RewardEvent[]>
+  cast: Agent[];
+  memoriesByAgent: Record<string, AgentMemory[]>;
+  currentGoals: Record<string, string>;
+  currentPolicies: Record<string, string>;
+  rewardTrajectories: Record<string, RewardEvent[]>;
 }): Promise<ExtractedReflection[]> {
-  const { cast, memoriesByAgent, currentGoals, currentPolicies, rewardTrajectories } = args
-  const validIds = new Set(cast.map((c) => c.id))
+  const {
+    cast,
+    memoriesByAgent,
+    currentGoals,
+    currentPolicies,
+    rewardTrajectories,
+  } = args;
+  const validIds = new Set(cast.map((c) => c.id));
 
   const blocks = cast.map((agent) => {
-    const mems = memoriesByAgent[agent.id] ?? []
+    const mems = memoriesByAgent[agent.id] ?? [];
     const memList =
       mems.length > 0
-        ? mems.map((m, i) => `  ${i + 1}. [${m.type}, importance ${m.importance}] ${m.content}`).join('\n')
-        : '  (no memories yet)'
-    const goal = currentGoals[agent.id] ?? '(no goal yet)'
-    const policy = currentPolicies[agent.id] ?? '(no strategy yet)'
-    const rewards = rewardTrajectories[agent.id] ?? []
-    const cumulative = sumRewards(rewards)
-    const trajectory = formatRewardTrajectory(rewards)
+        ? mems
+            .map(
+              (m, i) =>
+                `  ${i + 1}. [${m.type}, importance ${m.importance}] ${m.content}`,
+            )
+            .join("\n")
+        : "  (no memories yet)";
+    const goal = currentGoals[agent.id] ?? "(no goal yet)";
+    const policy = currentPolicies[agent.id] ?? "(no strategy yet)";
+    const rewards = rewardTrajectories[agent.id] ?? [];
+    const cumulative = sumRewards(rewards);
+    const trajectory = formatRewardTrajectory(rewards);
     return `### ${agent.name} (id: ${agent.id})
 Personality: ${agent.personality}
 Current goal: ${goal}
 Current strategy: ${policy}
-Cumulative reward so far: ${cumulative >= 0 ? '+' : ''}${cumulative}
+Cumulative reward so far: ${cumulative >= 0 ? "+" : ""}${cumulative}
 Reward trajectory (what has worked and what hasn't):
 ${trajectory}
 Recent memories:
-${memList}`
-  })
+${memList}`;
+  });
 
   const prompt = `You are running POLICY REFLECTION for a cast of parody Love Island contestants.
 
@@ -205,7 +264,7 @@ Each contestant has been collecting observations AND accumulating rewards from t
 
 This is a reinforcement learning style update: each contestant looks at what produced positive rewards versus negative rewards for them, and adjusts their STRATEGY accordingly. Their updated strategy will drive how they behave in future scenes.
 
-${blocks.join('\n\n')}
+${blocks.join("\n\n")}
 
 For each contestant, generate:
 1. An insight — a specific pattern they've noticed about what worked and what didn't (first person, reference their actual reward trajectory)
@@ -225,19 +284,30 @@ Respond ONLY with valid JSON in this exact shape:
   ]
 }
 
-Generate exactly ONE reflection per contestant above. Do not skip anyone.`
+Generate exactly ONE reflection per contestant above. Do not skip anyone.`;
 
-  const data = (await ollamaJsonCall(prompt)) as { reflections?: RawReflection[] }
-  const raw = Array.isArray(data.reflections) ? data.reflections : []
+  const data = (await ollamaJsonCall(prompt)) as {
+    reflections?: RawReflection[];
+  };
+  const raw = Array.isArray(data.reflections) ? data.reflections : [];
 
   return raw
-    .filter((r) => typeof r.agentId === 'string' && validIds.has(r.agentId))
-    .filter((r) => typeof r.insight === 'string' && r.insight.length > 0)
+    .filter((r) => typeof r.agentId === "string" && validIds.has(r.agentId))
+    .filter((r) => typeof r.insight === "string" && r.insight.length > 0)
     .map((r) => ({
       agentId: r.agentId,
       insight: String(r.insight).slice(0, 280),
-      importance: typeof r.importance === 'number' ? Math.max(1, Math.min(10, Math.round(r.importance))) : 7,
-      newGoal: typeof r.newGoal === 'string' ? r.newGoal.slice(0, 160) : currentGoals[r.agentId] ?? '',
-      newPolicy: typeof r.newPolicy === 'string' ? r.newPolicy.slice(0, 80) : currentPolicies[r.agentId] ?? '',
-    }))
+      importance:
+        typeof r.importance === "number"
+          ? Math.max(1, Math.min(10, Math.round(r.importance)))
+          : 7,
+      newGoal:
+        typeof r.newGoal === "string"
+          ? r.newGoal.slice(0, 160)
+          : (currentGoals[r.agentId] ?? ""),
+      newPolicy:
+        typeof r.newPolicy === "string"
+          ? r.newPolicy.slice(0, 80)
+          : (currentPolicies[r.agentId] ?? ""),
+    }));
 }

@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useEffect, useState } from 'react'
-import type { Agent, Emotion, SceneType } from '@/types'
+import type { Agent, Emotion, SceneType } from '@villa-ai/shared'
 
 interface Props {
   agent: Agent

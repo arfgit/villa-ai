@@ -1,4 +1,4 @@
-import type { Host } from "@/types";
+import type { Host } from "@villa-ai/shared";
 
 export const HOST: Host = {
   id: "host",

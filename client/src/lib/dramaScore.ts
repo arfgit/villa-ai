@@ -1,4 +1,4 @@
-import type { Scene } from '@/types'
+import type { Scene } from '@villa-ai/shared'
 
 const DECAY = 0.9
 

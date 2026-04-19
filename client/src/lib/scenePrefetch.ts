@@ -12,16 +12,17 @@
 // overlapping batches. Episode-id fencing keeps a pre-episode-switch run
 // from leaking its results into the new episode.
 //
-// Non-batchable scene types (minigame, recouple, bombshell, etc.) need
-// per-scene setup the prefetcher doesn't have (interviewSubjectId, reward
-// couple, etc.), AND they mutate game state: a recouple makes/breaks
-// couples, a minigame awards a reward date, a bombshell seeds attractions.
-// So when lookahead hits a non-batchable slot, we STOP — any ambient scene
-// we generated beyond that point would be written against pre-mutation
-// state and would read as a continuity break when committed after the
-// live scene landed. The user gets a one-time "writers room" pause on the
-// state-mutating scene, then prefetch resumes from the fresh state after
-// it commits.
+// Batchable vs non-batchable: see BATCHABLE_TYPES and STOP_AFTER_TYPES
+// below. Ambient scenes (firepit / pool / kitchen / bedroom) plus self-
+// contained ceremonies (date / interview / challenge / minigame) and
+// the first coupling are prefetched. Non-batchable types (recouple after
+// the first, bombshell, islander_vote, public_vote, casa_amor_*) still
+// live-gen — either because they mutate game state in ways working-
+// state can't yet mirror (recouple reorganization, reward-date side
+// effects) or because their setup depends on LLM-adjacent decisions
+// the prefetcher shouldn't make without fresh context. When lookahead
+// hits a non-batchable slot the batch stops and the user sees a live-
+// gen pause on that scene; prefetch resumes from fresh state after.
 
 import type {
   Agent,
@@ -32,7 +33,7 @@ import type {
   Relationship,
   Scene,
   SceneType,
-} from "@/types";
+} from "@villa-ai/shared";
 import type { BuildArgs, SceneOutline } from "@villa-ai/shared";
 import { generateScene as generateSceneFromLlm } from "./llm";
 import { nextChallengeCategory, planBatch } from "./seasonPlanner";
@@ -43,22 +44,35 @@ import { trimSceneForPrompt } from "./scenePayload";
 
 // ── Policy ──────────────────────────────────────────────────────────────
 
-// Scene types we prefetch unconditionally. Ambient social scenes have
-// prompts that depend only on cast + relationship state; minigame's
-// setup (challengeCategory + minigameDefinition) is derivable from
-// current scenes via pure functions, so we can prefetch it too.
+// Scene types we prefetch unconditionally. Widened from just ambient
+// (firepit/pool/kitchen/bedroom) + minigame to also include dates,
+// interviews, challenges — all self-contained scene types whose prompt
+// needs nothing beyond committed game state + outline. Previously these
+// live-gen'd every time, which is exactly the "loading screen between
+// every ceremony scene" pain point users noticed.
 const BATCHABLE_TYPES: ReadonlySet<SceneType> = new Set([
   "firepit",
   "pool",
   "kitchen",
   "bedroom",
   "minigame",
+  "date",
+  "interview",
+  "challenge",
 ]);
 
-// Scene types that mutate game state enough that we can't reliably keep
-// generating PAST them (a minigame picks a winner, a recouple creates or
-// breaks couples). Prefetch stops after queuing one of these — the next
-// cycle resumes from the fresh post-commit state.
+// Scene types that STILL stop the batch because their outcomes require
+// real store-side side effects we don't mirror in working state. A
+// minigame awards a reward-date couple at commit time; a recouple
+// reorganizes pairings through applyRecoupleDefections. We can realize
+// ONE of these then stop — the next prefetch cycle resumes from the
+// fresh post-commit state.
+//
+// Ceremony types (islander_vote / public_vote / bombshell) are still
+// NON-BATCHABLE too — they're not in BATCHABLE_TYPES above. When we
+// extend batching to cover those, workingState.applyElimination is the
+// seed helper for eliminating an agent in the simulated state so
+// subsequent batch prompts see the correct post-elimination cast.
 const STOP_AFTER_TYPES: ReadonlySet<SceneType> = new Set([
   "minigame",
   "recouple",
@@ -79,18 +93,19 @@ export function isBatchable(sceneType: SceneType, scenes: Scene[]): boolean {
   return false;
 }
 
-// Queue depth trades off buffer vs speculative burn. We used to target 5
-// but that had two costs: (a) on single-model Ollama it pipelines 5
-// generation jobs behind whatever's currently live, slowing everything;
-// (b) deeper speculation = more scenes to throw away on mispredicts.
-// 3 scenes ahead is still enough to absorb a single LLM hiccup without
-// the user ever seeing "catching up…" during steady-state playback.
-const TARGET_QUEUE_DEPTH = 3;
+// Queue depth of 5 matches the widened BATCHABLE_TYPES. Deeper queue
+// absorbs runs of self-contained scenes (e.g. date → interview →
+// challenge → date → kitchen) where a shallower buffer would empty
+// faster than a refill batch completes. Speculative-burn cost is
+// bounded — Haiku scene gen is ~$0.002/scene, so 2 extra speculative
+// scenes is fractions of a cent.
+const TARGET_QUEUE_DEPTH = 5;
 
-// Only top up when the queue drops below this. Prevents us from firing a
-// batch on every single playback-start event. At threshold=2, there's
-// always at least 1 scene in reserve while the next batch generates.
-const TOPUP_THRESHOLD = 2;
+// Only top up when the queue drops below this. Higher threshold means
+// we refill sooner after consumption — with a 5-deep target and
+// threshold 3, we kick off a refill batch once the queue is ≤ 3,
+// giving it time to complete before the queue would otherwise empty.
+const TOPUP_THRESHOLD = 3;
 
 export interface PrefetchPolicy {
   gapToFill: number;
@@ -124,6 +139,12 @@ export interface PrefetchInput {
   relationships: Relationship[];
   emotions: EmotionState[];
   couples: Couple[];
+  // Eliminated-agent ids from the committed episode state. The prefetch
+  // helpers (pickFocalDateCouple / pickInterviewSubject) gate candidates
+  // through working.eliminatedIds; if this stays empty, a date or
+  // interview scene could be prefetched against an agent who has
+  // already left the villa.
+  eliminatedIds: string[];
   seasonTheme: string;
   bombshellsIntroduced: string[];
   bombshellPool: Agent[];
@@ -247,6 +268,47 @@ function buildArgsFor(
     buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
   }
 
+  // Challenge setup: category rotation same as minigame, but no minigame
+  // definition needed — challenge uses its own prompt branch.
+  // Challenge setup mirrors minigame: inject the category AND the
+  // pickMinigame-chosen definition. Previously only the category was
+  // set, so prefetched challenges ignored the rotation dedupe and the
+  // LLM invented the game type — letting "Beach Olympics" / "Face to
+  // Face" repeat back-to-back. Live-gen already does this; keep parity.
+  if (outline.type === "challenge") {
+    const category = nextChallengeCategory(working.scenes);
+    const recentGameNames = working.scenes
+      .slice(-6)
+      .filter((s) => s.type === "minigame" || s.type === "challenge")
+      .map((s) => s.title)
+      .filter((t): t is string => typeof t === "string" && t.length > 0);
+    buildArgs.challengeCategory = category;
+    buildArgs.minigameDefinition = pickMinigame(category, recentGameNames);
+  }
+
+  // Date focal couple: pick the highest-tension couple in working state
+  // that hasn't had a date in the last 3 date scenes. Mirrors the
+  // live-gen rotation logic in the store so prefetched date nights
+  // don't all land on the same pair.
+  if (outline.type === "date" && working.couples.length > 0) {
+    const focal = pickFocalDateCouple(working);
+    if (focal) {
+      buildArgs.forcedParticipants = [focal.a, focal.b];
+    }
+  }
+
+  // Interview subject: pick a cast member we haven't interviewed
+  // recently. Bare heuristic — the live-gen path uses drama scoring
+  // for this; we approximate with "least recently interviewed" since
+  // working state doesn't carry dramaScores.
+  if (outline.type === "interview") {
+    const subjectId = pickInterviewSubject(input.activeCast, working);
+    if (subjectId) {
+      buildArgs.interviewSubjectId = subjectId;
+      buildArgs.forcedParticipants = [subjectId];
+    }
+  }
+
   // First-coupling: the prompt's first-coupling branch reads
   // isFirstCoupling directly, so this only needs to fire when no prior
   // recouple exists in working state (which already reflects earlier
@@ -257,6 +319,74 @@ function buildArgsFor(
   }
 
   return buildArgs;
+}
+
+// Pick the focal couple for a batched date night. Prefers couples that
+// haven't been on a date in the most recent 3 date scenes; within that
+// filter, picks the highest attraction pair. Returns null if no active
+// couples are available.
+function pickFocalDateCouple(
+  working: WorkingState,
+): { a: string; b: string } | null {
+  if (working.couples.length === 0) return null;
+  const recentDateKeys = new Set<string>();
+  const recentDates = working.scenes.filter((s) => s.type === "date").slice(-3);
+  for (const scene of recentDates) {
+    const ids = (scene.participantIds ?? []).slice().sort();
+    if (ids.length === 2) recentDateKeys.add(ids.join("|"));
+  }
+  const activeCouples = working.couples.filter((c) => {
+    const bothActive =
+      !working.eliminatedIds.includes(c.a) &&
+      !working.eliminatedIds.includes(c.b);
+    return bothActive;
+  });
+  if (activeCouples.length === 0) return null;
+  const scored = activeCouples.map((c) => {
+    const key = [c.a, c.b].sort().join("|");
+    const wasRecent = recentDateKeys.has(key);
+    const relAB = working.relationships.find(
+      (r) => r.fromId === c.a && r.toId === c.b,
+    );
+    const relBA = working.relationships.find(
+      (r) => r.fromId === c.b && r.toId === c.a,
+    );
+    const attractionSum = (relAB?.attraction ?? 0) + (relBA?.attraction ?? 0);
+    // Non-recent couples always rank above recent ones via the 10000 bonus.
+    return { couple: c, score: (wasRecent ? 0 : 10000) + attractionSum };
+  });
+  scored.sort((x, y) => y.score - x.score);
+  return scored[0]?.couple ?? null;
+}
+
+// Pick an interview subject who hasn't had one recently. Falls back to
+// any active (non-eliminated) cast member if everyone's been interviewed.
+function pickInterviewSubject(
+  activeCast: Agent[],
+  working: WorkingState,
+): string | null {
+  const recentInterviewIds = new Set<string>();
+  const recentInterviews = working.scenes
+    .filter((s) => s.type === "interview")
+    .slice(-3);
+  for (const scene of recentInterviews) {
+    for (const id of scene.participantIds ?? []) {
+      recentInterviewIds.add(id);
+    }
+  }
+  const available = activeCast.filter(
+    (a) =>
+      !working.eliminatedIds.includes(a.id) && !recentInterviewIds.has(a.id),
+  );
+  if (available.length > 0) {
+    return available[Math.floor(Math.random() * available.length)]!.id;
+  }
+  // Everyone's been interviewed recently — fall back to any active agent.
+  const activeAny = activeCast.filter(
+    (a) => !working.eliminatedIds.includes(a.id),
+  );
+  if (activeAny.length === 0) return null;
+  return activeAny[Math.floor(Math.random() * activeAny.length)]!.id;
 }
 
 async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
@@ -312,11 +442,12 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
   // imagination fills the gap just fine, and staleness is bounded
   // because state-mutating types already end the batch (STOP_AFTER).
   //
-  // On local Ollama with num_parallel=1 this is no slower than
-  // sequential — Ollama serializes internally. On Ollama with
-  // num_parallel>=2 (or on Gemini with real concurrency), this runs
-  // all N calls simultaneously, so cold-start fill time becomes
-  // max(single-scene-latency) instead of sum(single-scene-latency).
+  // On Anthropic (prod default) and Gemini, calls run in true parallel
+  // so cold-start fill time becomes max(single-scene-latency) instead
+  // of sum(single-scene-latency). On local Ollama with num_parallel=1
+  // (dev default), Ollama serializes internally so parallel degrades
+  // to sequential — bump OLLAMA_NUM_PARALLEL=4 on the runtime to
+  // recover the speedup. See README for the config snippet.
   //
   // Each scene stages its own working state with prior outlines'
   // stubs so sceneNumber advances correctly — parallel doesn't mean
@@ -328,7 +459,7 @@ async function runPrefetch(input: PrefetchInput): Promise<QueuedScene[]> {
     relationships: input.relationships,
     emotions: input.emotions,
     couples: input.couples,
-    eliminatedIds: [],
+    eliminatedIds: input.eliminatedIds,
   });
 
   const runStartedAt = performance.now();

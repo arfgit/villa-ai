@@ -1,5 +1,6 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import { useVillaStore, restoreFromServer } from "@/store/useVillaStore";
+import { ensureSessionId } from "@/lib/sessionId";
 import { useBreakpoint } from "@/lib/useBreakpoint";
 import { changeTrack } from "@/lib/music";
 import EpisodeHeader from "@/features/episode/EpisodeHeader";
@@ -20,56 +21,60 @@ export default function App() {
   const toggleRelationships = useVillaStore((s) => s.toggleRelationships);
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric);
   const viewerMessages = useVillaStore((s) => s.viewerMessages);
-  const generateScene = useVillaStore((s) => s.generateScene);
-  const isGenerating = useVillaStore((s) => s.isGenerating);
-  const sceneCount = episode.scenes.length;
 
   const bp = useBreakpoint();
   const [isRestoring, setIsRestoring] = useState(true);
   const [sessionModalOpen, setSessionModalOpen] = useState(false);
+  // Separate from store.lastError — boot failures happen BEFORE the store's
+  // error-display paths are rendered, so we surface them in the loading
+  // screen itself rather than silently stalling on "loading your villa...".
+  const [bootError, setBootError] = useState<string | null>(null);
 
   const currentScene = episode.scenes.find((s) => s.id === currentSceneId);
   const currentSceneType = currentScene?.type;
+  // When the current scene is a recouple, count how many recouples have
+  // happened including this one. Used to relabel the first (ordinal === 1)
+  // as "First Coupling" instead of "Recoupling" in the cast location column.
+  const recoupleOrdinal =
+    currentScene?.type === "recouple"
+      ? episode.scenes
+          .slice(
+            0,
+            episode.scenes.findIndex((s) => s.id === currentScene.id) + 1,
+          )
+          .filter((s) => s.type === "recouple").length
+      : undefined;
 
   useEffect(() => {
-    restoreFromServer().finally(() => setIsRestoring(false));
+    // Resolve the session UUID FIRST (boot-time collision check against
+    // server); only then load whatever session that UUID points to. This
+    // ordering prevents request() from seeing an empty localStorage and
+    // throwing mid-restore, and prevents a freshly-generated UUID from
+    // silently landing on top of someone else's existing session.
+    (async () => {
+      try {
+        await ensureSessionId();
+        await restoreFromServer();
+      } catch (err) {
+        // ensureSessionId throws only on the pathological 5-collision /
+        // unreachable-server case; restoreFromServer catches its own
+        // errors internally. If we reach this branch, localStorage has
+        // no session UUID — every subsequent getSessionId() would throw.
+        // Surface the error in the loading screen so the user sees a
+        // reload prompt instead of a blank app.
+        const msg = err instanceof Error ? err.message : String(err);
+        console.error("[boot] session resolution failed:", msg);
+        setBootError(msg);
+      } finally {
+        setIsRestoring(false);
+      }
+    })();
   }, []);
 
-  // Warm-on-mount: starts scene-0 generation as soon as the app
-  // finishes loading a fresh episode, so the ~15-40s LLM wallclock
-  // happens during app-load perceived-time instead of after the user
-  // clicks "start show". Clicking the button mid-warm is a no-op
-  // because generateScene has its own isGenerating guard.
-  //
-  // CRITICAL: ref-gate by episode.id so this fires EXACTLY ONCE per
-  // episode. Without the ref, an LLM failure flips isGenerating
-  // back to false, which re-runs the effect (sceneCount is still 0,
-  // guards still pass), which re-fires generateScene, which fails
-  // again — infinite retry loop burning tokens. The ref marks the
-  // episode as already-warmed regardless of whether the warm
-  // succeeded, so a failed attempt doesn't auto-retry. If the user
-  // wants to retry after a failure, the retry button path handles
-  // that explicitly.
-  const warmedEpisodes = useRef(new Set<string>());
-  useEffect(() => {
-    if (isRestoring) return;
-    if (sceneCount !== 0) return;
-    if (isGenerating) return;
-    if (episode.winnerCouple) return;
-    if (ui.isPaused) return;
-    if (warmedEpisodes.current.has(episode.id)) return;
-    warmedEpisodes.current.add(episode.id);
-    console.log("[warm-on-mount] starting scene 0 generation in background");
-    generateScene();
-  }, [
-    isRestoring,
-    sceneCount,
-    isGenerating,
-    episode.id,
-    episode.winnerCouple,
-    ui.isPaused,
-    generateScene,
-  ]);
+  // Scene 0 is opt-in by design: the user clicks the [▶ start show]
+  // button in BottomActionBar to begin the season. We intentionally do
+  // NOT warm-generate on mount so the app doesn't spend tokens or lock
+  // isGenerating until the user is actually ready to watch.
 
   useEffect(() => {
     if (currentSceneType) {
@@ -84,6 +89,35 @@ export default function App() {
       <div className="h-[100dvh] flex items-center justify-center bg-villa-bg crt">
         <div className="text-villa-pink text-xs uppercase tracking-widest animate-pulse">
           loading your villa...
+        </div>
+      </div>
+    );
+  }
+
+  if (bootError) {
+    return (
+      <div className="h-[100dvh] flex items-center justify-center bg-villa-bg crt p-6">
+        <div className="max-w-md text-center space-y-4">
+          <div className="text-villa-love text-xs uppercase tracking-widest">
+            could not start session
+          </div>
+          {/*
+            User-facing copy only — the raw err.message from ensureSessionId /
+            restoreFromServer can include fetch URLs, stack lines, or server
+            internals that aren't useful to the user and shouldn't be leaked
+            into UI. The full message is logged to the dev console above via
+            console.error for debugging.
+          */}
+          <div className="text-villa-dim text-xs leading-relaxed break-words">
+            Could not connect to the server. Check your connection and try
+            again. If this keeps happening, the console log has details.
+          </div>
+          <button
+            onClick={() => window.location.reload()}
+            className="px-4 py-2 text-[10px] uppercase border border-villa-pink text-villa-pink hover:bg-villa-pink hover:text-villa-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
+          >
+            reload
+          </button>
         </div>
       </div>
     );
@@ -104,6 +138,7 @@ export default function App() {
               winnerCouple={episode.winnerCouple}
               locations={episode.locations}
               currentSceneType={currentSceneType}
+              recoupleOrdinal={recoupleOrdinal}
               brains={episode.brains}
             />
           </div>
@@ -118,6 +153,8 @@ export default function App() {
                 metric={ui.activeRelationshipMetric}
                 onMetricChange={setRelationshipMetric}
                 eliminatedIds={episode.eliminatedIds}
+                viewerSentiment={episode.viewerSentiment}
+                couples={episode.couples}
               />
             </div>
             <div className="h-[200px] shrink-0">
@@ -160,6 +197,8 @@ export default function App() {
           metric={ui.activeRelationshipMetric}
           onMetricChange={setRelationshipMetric}
           eliminatedIds={episode.eliminatedIds}
+          viewerSentiment={episode.viewerSentiment}
+          couples={episode.couples}
         />
       </Drawer>
 

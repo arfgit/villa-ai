@@ -1,4 +1,4 @@
-import type { Agent, Couple, Relationship, Scene, CoupleArchetype, StickOrSwitchChoice } from '@/types'
+import type { Agent, Couple, Relationship, Scene, CoupleArchetype, StickOrSwitchChoice } from '@villa-ai/shared'
 import { generateCast } from './castGenerator'
 
 export function classifyCoupleArchetype(

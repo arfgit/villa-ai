@@ -1,4 +1,4 @@
-import type { SceneType, Scene, CasaAmorState, Couple } from "@/types";
+import type { SceneType, Scene, CasaAmorState, Couple } from "@villa-ai/shared";
 import type { SceneOutline } from "@villa-ai/shared";
 
 export type SeasonPhase =
@@ -21,11 +21,21 @@ interface PlannerState {
   recoupleCount?: number;
 }
 
-// Casa Amor should feel mid-season — not early. Require enough recouples,
+// Casa Amor should feel mid-to-late season — the second-villa arc only
+// lands if the audience has seen the main cast bond enough to CARE when
+// they're tempted. Bar: enough recouples to establish stable couples,
 // at least one bombshell disruption, and a meaningful episode count.
-const CASA_AMOR_MIN_SCENES = 14;
+//
+// Targets a scene-20-ish trigger, with a backstop that force-fires in
+// midgame before the cast shrinks past the window.
+const CASA_AMOR_MIN_SCENES = 20;
 const CASA_AMOR_MIN_RECOUPLES = 3;
-const CASA_AMOR_MIN_COUPLES = 3;
+const CASA_AMOR_MIN_COUPLES = 2;
+// "Now or never" — if midgame runs this long without Casa Amor, fire
+// with a relaxed bar (ignore the couples/recouples thresholds) so a
+// slightly-off state doesn't cost us the whole arc. Still requires a
+// prior bombshell so we don't collide with an un-shaken early state.
+const CASA_AMOR_BACKSTOP_SCENES = 24;
 
 const CHILL_SPOTS: SceneType[] = ["firepit", "pool", "kitchen", "bedroom"];
 
@@ -104,19 +114,30 @@ export function nextSceneType(state: PlannerState): SceneType {
     return nextCasaAmorSceneType(state.casaAmorState);
   }
 
-  // Casa Amor trigger: midgame, enough scenes/recouples/couples, at least one bombshell
-  // has already shaken things up, and it hasn't happened yet.
+  // Casa Amor trigger: midgame, enough scenes/recouples/couples, at least
+  // one bombshell has already shaken things up, and it hasn't happened yet.
   const recouples =
     state.recoupleCount ??
     state.scenes.filter((s) => s.type === "recouple").length;
-  if (
+  const casaAmorIdealWindow =
     phase === "midgame" &&
     !state.casaAmorState &&
     sceneCount >= CASA_AMOR_MIN_SCENES &&
     recouples >= CASA_AMOR_MIN_RECOUPLES &&
     state.coupleCount >= CASA_AMOR_MIN_COUPLES &&
-    state.bombshellsIntroduced >= 1
-  ) {
+    state.bombshellsIntroduced >= 1;
+  // Backstop: we're deep in midgame, Casa Amor hasn't fired, and the cast
+  // is about to shrink into lategame where the arc no longer makes sense.
+  // Fire with a relaxed bar (ignore the couples/recouples thresholds) so
+  // a slightly-off state doesn't cost us the whole arc. Still requires a
+  // prior bombshell so we don't collide with an early "nobody's been
+  // shaken yet" state.
+  const casaAmorBackstop =
+    phase === "midgame" &&
+    !state.casaAmorState &&
+    sceneCount >= CASA_AMOR_BACKSTOP_SCENES &&
+    state.bombshellsIntroduced >= 1;
+  if (casaAmorIdealWindow || casaAmorBackstop) {
     return "casa_amor_arrival";
   }
 

@@ -13,12 +13,21 @@ const PORT = parseInt(process.env.PORT ?? "3001", 10);
 
 app.listen(PORT, () => {
   const provider = getProvider();
-  const providerDetail =
-    provider === "ollama"
-      ? `${process.env.OLLAMA_HOST ?? "http://localhost:11434"} / ${process.env.OLLAMA_MODEL ?? "llama3.2"}`
-      : process.env.GEMINI_API_KEY
-        ? "key configured"
-        : "NO GEMINI_API_KEY SET";
+  let providerDetail: string;
+  if (provider === "ollama") {
+    providerDetail = `${process.env.OLLAMA_HOST ?? "http://localhost:11434"} / ${process.env.OLLAMA_MODEL ?? "llama3.2"}`;
+  } else if (provider === "anthropic") {
+    const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
+    const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
+    const fallback = process.env.GEMINI_API_KEY ? " + gemini fallback" : "";
+    providerDetail = hasKey
+      ? `${model}${fallback}`
+      : "NO ANTHROPIC_API_KEY SET";
+  } else {
+    providerDetail = process.env.GEMINI_API_KEY
+      ? "key configured"
+      : "NO GEMINI_API_KEY SET";
+  }
   console.log(`[villa-ai server] listening on http://localhost:${PORT}`);
   console.log(
     `[villa-ai server] LLM provider: ${provider} (${providerDetail})`,
@@ -47,6 +56,12 @@ async function probeOllamaParallelism(): Promise<void> {
   const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
   const model = process.env.OLLAMA_MODEL ?? "llama3.2";
 
+  // Match the scene-gen runner's num_ctx so the probe doesn't spawn a
+  // separate runner with Ollama's VRAM-based default context (262144),
+  // which would end up with most layers on CPU and pollute the concurrency
+  // measurement. Keep in sync with services/ollama.ts NUM_CTX.
+  const probeNumCtx = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
+
   // Pre-warm the model so the concurrency probe isn't measuring model
   // load time. Tiny prompt, ignore result.
   await fetch(`${host}/api/generate`, {
@@ -56,7 +71,7 @@ async function probeOllamaParallelism(): Promise<void> {
       model,
       prompt: "hi",
       stream: false,
-      options: { num_predict: 1 },
+      options: { num_predict: 1, num_ctx: probeNumCtx },
     }),
   }).catch(() => null);
 
@@ -69,7 +84,7 @@ async function probeOllamaParallelism(): Promise<void> {
         model,
         prompt: "say ok",
         stream: false,
-        options: { num_predict: 4 },
+        options: { num_predict: 4, num_ctx: probeNumCtx },
       }),
     })
       .then((r) => r.text())

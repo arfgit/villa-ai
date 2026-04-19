@@ -50,6 +50,38 @@ export async function loadCurrentSession(): Promise<{
   }
 }
 
+// Tri-state result from the existence probe. We distinguish these three
+// cases because mintUniqueSessionId needs different behavior for each:
+//   - "free": confirmed 404 on the HEAD probe — safe to claim the UUID
+//   - "taken": confirmed 200 — a session already exists on the server
+//   - "unknown": network error or non-404/200 HTTP status (e.g. 500, 503)
+//     — we can't tell; caller decides whether to retry or fall through
+export type SessionExistenceResult = "free" | "taken" | "unknown";
+
+// Lightweight existence probe used by ensureSessionId / rotateSessionId
+// to avoid handing out a UUID that's already bound to another session
+// on the server. Intentionally bypasses request() because HEAD has no
+// response body to parse.
+export async function checkSessionExists(
+  sessionId: string,
+): Promise<SessionExistenceResult> {
+  try {
+    const res = await fetch(`${BASE}/api/session/${sessionId}`, {
+      method: "HEAD",
+    });
+    if (res.status === 200) return "taken";
+    if (res.status === 404) return "free";
+    // Anything else (500, 503, proxy error, etc.) — the server is in a
+    // state we can't reason about. Returning "unknown" lets the caller
+    // retry or surface the issue instead of silently assuming the UUID
+    // is available and landing on top of an existing session.
+    return "unknown";
+  } catch {
+    // Network error — same "don't assume" answer. The caller decides.
+    return "unknown";
+  }
+}
+
 export async function loadSessionById(
   sessionId: string,
 ): Promise<{ episode: unknown; cast: unknown; sessionId: string } | null> {
@@ -119,5 +151,30 @@ export async function serverHealthCheck(): Promise<{
     return await request("/api/health");
   } catch {
     return { status: "unreachable", firebase: false };
+  }
+}
+
+// Dev-only provider toggle. The server gates these behind NODE_ENV so
+// in prod they 404 — catch that here and the UI will hide the toggle.
+export type ProviderState = {
+  effective: "anthropic" | "gemini" | "ollama";
+  override: "anthropic" | "gemini" | "ollama" | null;
+};
+
+export async function fetchProviderState(): Promise<ProviderState | null> {
+  try {
+    return await request<ProviderState>("/api/dev/provider");
+  } catch {
+    return null;
+  }
+}
+
+export async function setProviderOverride(
+  provider: "anthropic" | "gemini" | "ollama" | null,
+): Promise<ProviderState | null> {
+  try {
+    return await request<ProviderState>("/api/dev/provider", { provider });
+  } catch {
+    return null;
   }
 }

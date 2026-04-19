@@ -1,4 +1,4 @@
-import type { ChallengeCategory } from "@/types";
+import type { ChallengeCategory } from "@villa-ai/shared";
 
 // Deterministic minigame library. Each entry is a specific game with
 // rules + win condition the host reads out. The prompt injects one of

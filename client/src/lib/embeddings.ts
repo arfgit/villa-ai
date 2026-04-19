@@ -29,9 +29,9 @@ export async function embed(text: string): Promise<number[]> {
   return data.embedding;
 }
 
-// Sequential — the server embedding provider (Ollama) serializes per model,
-// so parallel fetches give no real speedup. Keeping it sequential makes
-// failures easier to attribute to a specific input.
+// Sequential — the server's embedding backend typically serializes per
+// model, so parallel fetches give no real speedup. Keeping it sequential
+// also makes failures easier to attribute to a specific input.
 export async function embedBatch(texts: string[]): Promise<number[][]> {
   const out: number[][] = [];
   for (const t of texts) {

@@ -1,5 +1,5 @@
 import { useEffect, useRef } from "react";
-import type { Agent, DialogueLine, Host } from "@/types";
+import type { Agent, DialogueLine, Host } from "@villa-ai/shared";
 import ChatBubble from "./ChatBubble";
 import { HOST } from "@/data/host";
 

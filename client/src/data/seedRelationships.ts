@@ -1,4 +1,4 @@
-import type { Relationship, EmotionState, Agent } from '@/types'
+import type { Relationship, EmotionState, Agent } from '@villa-ai/shared'
 import { baseCompatibility } from '@/lib/castGenerator'
 
 export function buildSeedRelationships(cast: Agent[]): Relationship[] {

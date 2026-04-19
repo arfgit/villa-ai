@@ -1,4 +1,4 @@
-import type { Couple, Scene, SystemEvent, RewardEvent } from '@/types'
+import type { Couple, Scene, SystemEvent, RewardEvent } from '@villa-ai/shared'
 import { newId } from './ids'
 
 export interface RewardContext {

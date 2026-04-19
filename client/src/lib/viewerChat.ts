@@ -4,7 +4,7 @@ import type {
   Agent,
   ViewerMessage,
   CasaAmorState,
-} from "@/types";
+} from "@villa-ai/shared";
 import { loadTrainingArchive, type SeasonSummary } from "./trainingData";
 
 const USERNAMES = [
@@ -524,24 +524,58 @@ export function updateViewerSentiment(
   const updated = { ...current };
 
   for (const line of scene.dialogue) {
-    if (!updated[line.agentId]) updated[line.agentId] = 50;
-    // Speaking in scenes builds some popularity
+    if (updated[line.agentId] === undefined) updated[line.agentId] = 50;
+    // Speaking in scenes builds some popularity — being seen matters.
     updated[line.agentId] = Math.min(100, (updated[line.agentId] ?? 50) + 0.5);
 
-    // Funny/charming lines boost popularity
+    // Funny/charming lines boost popularity. Quotable lines (LLM-tagged
+    // as drama-worthy) get a bigger bump — those are the lines chat
+    // reacts to with "SCREAMING", clips get shared, etc.
     if (line.emotion === "happy" || line.emotion === "flirty") {
-      updated[line.agentId] = Math.min(100, (updated[line.agentId] ?? 50) + 1);
+      const bump = line.quotable ? 2.5 : 1.2;
+      updated[line.agentId] = Math.min(
+        100,
+        (updated[line.agentId] ?? 50) + bump,
+      );
     }
-    // Villain behavior drops popularity
+    // Sad/anxious lines get viewer sympathy — a softer bump than charm.
+    if (line.emotion === "sad" || line.emotion === "anxious") {
+      updated[line.agentId] = Math.min(
+        100,
+        (updated[line.agentId] ?? 50) + 0.8,
+      );
+    }
+    // Villain behavior drops popularity. Quotable smug/angry lines drop
+    // HARD — those are the "everyone on Twitter turns on them" moments.
     if (line.emotion === "smug" || line.emotion === "angry") {
-      updated[line.agentId] = Math.max(0, (updated[line.agentId] ?? 50) - 1.5);
+      const drop = line.quotable ? 3.5 : 1.8;
+      updated[line.agentId] = Math.max(0, (updated[line.agentId] ?? 50) - drop);
+    }
+    // Jealousy reads as immature to viewers — small but consistent drop.
+    if (line.emotion === "jealous") {
+      updated[line.agentId] = Math.max(0, (updated[line.agentId] ?? 50) - 0.6);
     }
   }
 
-  // Coupled people get a small bump (viewers love love)
+  // Couple bonus: viewers love love. Slightly stronger so a stable
+  // couple visibly outgains a chaotic singleton over the season.
   for (const c of couples) {
-    updated[c.a] = Math.min(100, (updated[c.a] ?? 50) + 0.3);
-    updated[c.b] = Math.min(100, (updated[c.b] ?? 50) + 0.3);
+    updated[c.a] = Math.min(100, (updated[c.a] ?? 50) + 0.5);
+    updated[c.b] = Math.min(100, (updated[c.b] ?? 50) + 0.5);
+  }
+
+  // Event-based signal: couple_formed is a big crowd-pleaser; couple_broken
+  // draws sympathy for the dumped side and antipathy toward the dumper
+  // (heuristic: fromId = the one doing the breaking, toId = the one left).
+  for (const ev of scene.systemEvents) {
+    if (ev.type === "couple_formed" && ev.fromId && ev.toId) {
+      updated[ev.fromId] = Math.min(100, (updated[ev.fromId] ?? 50) + 1.5);
+      updated[ev.toId] = Math.min(100, (updated[ev.toId] ?? 50) + 1.5);
+    }
+    if (ev.type === "couple_broken" && ev.fromId && ev.toId) {
+      updated[ev.fromId] = Math.max(0, (updated[ev.fromId] ?? 50) - 1.5);
+      updated[ev.toId] = Math.min(100, (updated[ev.toId] ?? 50) + 2.0);
+    }
   }
 
   return updated;

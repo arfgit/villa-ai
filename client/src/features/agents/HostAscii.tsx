@@ -1,6 +1,6 @@
 import clsx from "clsx";
 import { useEffect, useState } from "react";
-import type { Host } from "@/types";
+import type { Host } from "@villa-ai/shared";
 
 interface Props {
   host: Host;

@@ -1,4 +1,4 @@
-import type { Agent } from '@/types'
+import type { Agent } from '@villa-ai/shared'
 
 const FIRST_NAMES = [
   'Aaliyah', 'Aiden', 'Amara', 'Blake', 'Brielle', 'Caleb', 'Camila', 'Dante',

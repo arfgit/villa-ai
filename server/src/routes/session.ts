@@ -59,6 +59,25 @@ sessionRouter.get("/current", async (req, res) => {
   }
 });
 
+// HEAD /api/session/:id — cheap existence probe for the client's UUID
+// collision check on new-session generation. Returns 200 (exists) or
+// 404 (does not). No body in either direction — this is called from
+// ensureSessionId() / rotateSessionId() in a small retry loop, so we
+// want it as lightweight as possible.
+sessionRouter.head("/:id", async (req, res) => {
+  try {
+    if (!isValidSessionId(req.params.id)) {
+      res.status(400).end();
+      return;
+    }
+    const data = await getSession(req.params.id);
+    res.status(data ? 200 : 404).end();
+  } catch (err) {
+    console.error("[session] head error:", err);
+    res.status(500).end();
+  }
+});
+
 // GET /api/session/:id — fetch any session by ID.
 // INTENTIONAL share-by-URL access model: knowing the UUID grants read access,
 // same as a Google Docs unlisted share. There is no user login, so the UUID

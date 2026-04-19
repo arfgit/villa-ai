@@ -1,4 +1,4 @@
-import type { Agent } from '@/types'
+import type { Agent } from '@villa-ai/shared'
 import { generateCast, generateBombshells } from '@/lib/castGenerator'
 
 const SEASON_SIZE = 8

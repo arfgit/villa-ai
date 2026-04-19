@@ -1,4 +1,4 @@
-import type { SceneType } from "@/types";
+import type { SceneType } from "@villa-ai/shared";
 
 export const ENVIRONMENTS: Record<SceneType, string> = {
   introductions: `      ✦    .    ✦    .    ✦

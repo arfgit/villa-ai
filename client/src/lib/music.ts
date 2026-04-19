@@ -1,4 +1,4 @@
-import type { SceneType } from "@/types";
+import type { SceneType } from "@villa-ai/shared";
 
 let ctx: AudioContext | null = null;
 let masterGain: GainNode | null = null;

@@ -1,4 +1,4 @@
-import type { DialogueLine } from "@/types";
+import type { DialogueLine } from "@villa-ai/shared";
 
 // Strip leading/trailing `*stage action*` segments from a dialogue line's text
 // and fold them into the dedicated action field. The LLM occasionally inlines

@@ -1,6 +1,6 @@
 import { useMemo } from "react";
 import clsx from "clsx";
-import type { Agent, Couple, EmotionState, SceneType, Host } from "@/types";
+import type { Agent, Couple, EmotionState, SceneType, Host } from "@villa-ai/shared";
 import { ENVIRONMENTS, getSceneLabel } from "@/data/environments";
 import AgentAscii from "@/features/agents/AgentAscii";
 import HostAscii from "@/features/agents/HostAscii";

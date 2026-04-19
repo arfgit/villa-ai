@@ -260,11 +260,24 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   // already says "every contestant must speak" in English — this is the
   // enforcement version.
   const requiredSpeakers: string[] = (() => {
-    if (isIntroduction || forcedParticipants === undefined) {
-      if (isIntroduction) return allCast.map((a) => a.id);
-      return [];
+    if (isIntroduction) return allCast.map((a) => a.id);
+    if (forcedParticipants) return forcedParticipants;
+    // Ensemble ceremony scenes need EVERY active cast member to get a line
+    // even when forcedParticipants isn't explicitly set. For recouples and
+    // the grand finale, silently skipping half the cast (what happened
+    // before this fallback) reads as "the villa has half as many people
+    // as it actually does". Challenge/minigame/bombshell have similar
+    // ensemble expectations.
+    if (
+      sceneType === "recouple" ||
+      sceneType === "grand_finale" ||
+      sceneType === "challenge" ||
+      sceneType === "minigame" ||
+      sceneType === "bombshell"
+    ) {
+      return allCast.map((a) => a.id);
     }
-    return forcedParticipants;
+    return [];
   })();
   const mandatorySpeakersBlock =
     requiredSpeakers.length > 0
@@ -501,12 +514,26 @@ RULES:
 - Every pick MUST produce a couple_formed system event.
 - DO NOT emit couple_broken events (no couples exist yet to break).`;
     } else {
+      // Inject the CURRENT couple count into the host's opening line. Without
+      // this, the LLM pattern-matches "recoupling" against its training data
+      // and hallucinates lines like "3 strong couples stand before me" even
+      // when only 2 remain — because show transcripts from full seasons use
+      // that phrasing. We force-correct by stating the real number inline.
+      const currentCoupleCount = couples.length;
+      const coupleCountPhrase =
+        currentCoupleCount === 1
+          ? "You arrive as 1 couple"
+          : `You arrive as ${currentCoupleCount} couples`;
       direction = `RECOUPLING — A 1-BY-1 PAIRING CEREMONY DRIVEN BY THE HOST. NOT a drama scene. NOT a monologue from one contestant.${scriptBlock}
 
 The host runs this like a ceremony. Every single pairing is ANNOUNCED by the host and explained before the next one happens. This is procedural, suspenseful, and the camera (i.e. the dialogue focus) cycles through everyone.
 
+CURRENT STATE (MUST be reflected in host dialogue — do NOT invent different numbers):
+- ${currentCoupleCount} couple${currentCoupleCount === 1 ? "" : "s"} standing at this ceremony: ${couples.map((c) => `${c.a} & ${c.b}`).join(", ") || "(none)"}
+- Host MUST reference "${currentCoupleCount} couple${currentCoupleCount === 1 ? "" : "s"}" NOT some other count
+
 MANDATORY SHAPE (use the REAL NAMES from the PRE-DETERMINED PAIRING ORDER above — NEVER write literal placeholders like "[Name]" or "[Name A]"):
-1. HOST opens (1-2 lines): "Islanders, it's time for a recoupling. You all know what this means — tonight one of you will be going home."
+1. HOST opens (1-2 lines): "Islanders, it's time for a recoupling. ${coupleCountPhrase} tonight — one of you will be going home."
 2. THEN, FOR EACH COUPLE in the pairing order (repeat this 3-step mini-cycle per pair):
    a. HOST calls the CHOOSER forward using their actual name from the script above.
    b. The CHOOSER gives their reason (1-2 lines) — references the rationale from the script plus a specific moment from this season.
@@ -527,27 +554,40 @@ RULES:
   } else if (sceneType === "public_vote" && eliminationNarrative) {
     direction = `PUBLIC VOTE ELIMINATION. The public has been voting and the results are in.
 
+⚠️ HARD CONSTRAINT — THE PERSON LEAVING IS: ${eliminatedNames}
+This has ALREADY been decided by viewer sentiment before this scene. You are NARRATING a pre-determined outcome, not picking one.
+- The ONLY name the host announces as eliminated is: ${eliminatedNames}
+- The ONLY farewell shown is: ${eliminatedNames}'s
+- DO NOT reveal the name until step 3; once revealed, DO NOT mention any other contestant going home
+
 STRUCTURE:
 1. Host gathers everyone at the firepit with maximum suspense (2-3 lines). "Islanders... I've just received the results of the public vote."
 2. Host builds tension — names the bottom 2-3 islanders who received the fewest votes. They must stand.
-3. Host announces: ${eliminationNarrative}
-4. The eliminated islander (${eliminatedNames}) gives a farewell speech — emotional, honest, maybe bitter.
+3. Host announces — using the EXACT NAME ${eliminatedNames}: ${eliminationNarrative}
+4. ${eliminatedNames} gives a farewell speech — emotional, honest, maybe bitter.
 5. Cast reacts: tears, hugs, relief, shock. Their partner (if any) is devastated or secretly relieved.
 6. Final host line teasing what's next.
 
-The person leaving is: ${eliminatedNames}. Write their farewell with real emotion — this is their last moment on the show.`;
+Write the farewell with real emotion — this is ${eliminatedNames}'s last moment on the show.`;
   } else if (sceneType === "islander_vote" && eliminationNarrative) {
     direction = `ISLANDER VOTE ELIMINATION. The contestants must choose who leaves.
+
+⚠️ HARD CONSTRAINT — THE PERSON LEAVING IS: ${eliminatedNames}
+This has ALREADY been decided by vote tally before this scene. You are NARRATING a pre-determined outcome, not picking one.
+- The ONLY name the host announces as eliminated is: ${eliminatedNames}
+- The ONLY person whose farewell is shown is: ${eliminatedNames}
+- DO NOT mention any other contestant going home, being at risk, or leaving the villa in this scene
+- DO NOT hedge ("one of you", "it could be anyone") once the votes are read — the name is ${eliminatedNames}
 
 STRUCTURE:
 1. Host announces the twist: "Tonight, the power is in YOUR hands. Each of you will vote for the islander you think should leave." (2 lines)
 2. 3-4 lines of islanders discussing, agonizing, some whispering alliances. Show the tension of having to vote out a friend.
 3. Host reads the votes one by one, building suspense with each reveal.
-4. Host announces: ${eliminationNarrative}
-5. The eliminated islander (${eliminatedNames}) reacts — shock, anger, acceptance, or tears.
-6. Cast reacts — guilt, relief, some questioning their vote.
+4. Host announces — using the EXACT NAME ${eliminatedNames}: ${eliminationNarrative}
+5. ${eliminatedNames} reacts to being the one voted out — shock, anger, acceptance, or tears.
+6. Cast reacts to ${eliminatedNames}'s exit — guilt, relief, some questioning their vote.
 
-The person voted out is: ${eliminatedNames}. Show the emotional weight of being voted out BY YOUR PEERS, not the public.`;
+Show the emotional weight of being voted out BY YOUR PEERS, not the public.`;
   } else if (sceneType === "producer_twist" && eliminationNarrative) {
     direction = `PRODUCER TWIST. The producers are shaking things up.
 

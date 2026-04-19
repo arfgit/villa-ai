@@ -14,13 +14,15 @@ import type {
   Subtext,
   SystemEvent,
   TurnIntent,
-} from "@/types";
+} from "@villa-ai/shared";
 
 // ──────────────────────────────────────────────────────────────────────
 // Scene Engine
 // Pure derivation: given episode state and a scene type, produce the full
 // SceneContext (tension, pattern, per-agent roles, planned beat sequence).
-// Called by useVillaStore.generateScene before buildScenePrompt.
+// Called by useVillaStore.generateScene; the SceneContext ships over the
+// wire inside BuildArgs and is rendered into the final prompt by the
+// server's prompt builder (server/src/lib/prompt.ts).
 // ──────────────────────────────────────────────────────────────────────
 
 export interface BuildSceneContextArgs {
@@ -675,7 +677,7 @@ export function buildSceneContext(args: BuildSceneContextArgs): SceneContext {
     pattern,
     plannedBeats,
     roles,
-    callbackHooks: [], // pass 2
+    callbackHooks: [],
   };
 }
 

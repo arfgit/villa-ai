@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import clsx from 'clsx'
-import type { ViewerMessage } from '@/types'
+import type { ViewerMessage } from '@villa-ai/shared'
 
 interface Props {
   messages: ViewerMessage[]
