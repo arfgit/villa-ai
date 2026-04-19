@@ -14,6 +14,7 @@ import type {
   ViewerMessage,
   Couple,
   SystemEvent,
+  SeasonArchive,
 } from "@villa-ai/shared";
 import { HOST } from "@/data/host";
 import { sampleSeasonCast } from "@/data/castPool";
@@ -85,11 +86,13 @@ import {
   loadCurrentSession,
   loadSessionById,
   saveTrainingData,
+  archiveSeason as archiveSeasonToServer,
 } from "@/lib/api";
 import {
   SESSION_KEY,
   rotateSessionId,
   touchRecentSession,
+  getSessionId,
 } from "@/lib/sessionId";
 import { newId } from "@/lib/ids";
 import {
@@ -148,7 +151,15 @@ interface VillaState {
   viewerMessages: ViewerMessage[];
   ui: UiState;
 
-  startNewEpisode: () => Promise<void>;
+  // Spin up a brand-new villa with a new session UUID. Preserves the old
+  // session at its old URL so it stays shareable. This is the "I'm done
+  // with this playthrough, start over fresh" action.
+  startNewVilla: () => Promise<void>;
+  // Advance to the next season within the SAME session UUID. Archives
+  // the finished season into villaSessions/{id}/seasons/{n} so past
+  // scenes stay browsable without inflating the live session doc, then
+  // bumps Episode.number and refreshes cast + relationships.
+  startNextSeason: () => Promise<void>;
   generateScene: (type?: SceneType) => Promise<void>;
   triggerPrefetch: (inProgressSceneType?: SceneType) => void;
   advanceLine: () => void;
@@ -1022,7 +1033,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   viewerMessages: [],
   ui: { ...DEFAULT_UI },
 
-  startNewEpisode: async () => {
+  startNewVilla: async () => {
     const prev = get();
     // Race guard — refuse to start a new episode while a scene is still
     // generating. Without this, an in-flight generateScene's commit would
@@ -1098,6 +1109,90 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
     }));
     // Step 4 — first save against the NEW UUID. This is a fresh
     // session on the server; POST /api/session will create it.
+    syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
+  },
+
+  startNextSeason: async () => {
+    const prev = get();
+    // Same race guard as startNewVilla: a scene mid-generation would
+    // commit against the OLD season after we've reset to the new one,
+    // leaving an orphaned scene on a fresh villa. Block at the entry.
+    if (prev.isGenerating) {
+      set({
+        lastError:
+          "Wait for the current scene to finish before starting a new season.",
+      });
+      return;
+    }
+
+    // Archive wisdom FIRST so reflections from the finishing season land
+    // under this session UUID (which is the same UUID we'll keep using).
+    try {
+      await archiveSeasonWisdom(prev.episode, prev.cast);
+    } catch (err) {
+      console.warn(
+        "[new-season] wisdom archive failed, continuing anyway:",
+        err instanceof Error ? err.message : err,
+      );
+    }
+    refreshTrainingCache().catch(() => {});
+
+    // Archive the current season's scenes + final state snapshot into
+    // villaSessions/{id}/seasons/{n}. On failure, bail — silently losing
+    // the archive would mean past seasons vanish from the UI with no
+    // recovery path, and the user would have no idea the archive didn't
+    // persist. Better to surface the error and let them retry than to
+    // charge forward and drop data.
+    const sessionId = getSessionId();
+    const archive: SeasonArchive = {
+      sessionId,
+      seasonNumber: prev.episode.number,
+      archivedAt: Date.now(),
+      episodeId: prev.episode.id,
+      episodeTitle: prev.episode.title,
+      seasonTheme: prev.episode.seasonTheme,
+      castPool: prev.episode.castPool,
+      bombshellPool: prev.episode.bombshellPool,
+      winnerCouple: prev.episode.winnerCouple,
+      eliminatedIds: prev.episode.eliminatedIds,
+      scenes: prev.episode.scenes,
+      finalRelationships: prev.episode.relationships,
+      finalViewerSentiment: prev.episode.viewerSentiment,
+      dramaScores: prev.episode.dramaScores,
+    };
+    try {
+      await archiveSeasonToServer(
+        sessionId,
+        prev.episode.number,
+        archive as unknown as Record<string, unknown>,
+      );
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[new-season] season archive failed:", msg);
+      set({
+        lastError: `Could not archive the finished season (${msg}). Check your connection and try again — past seasons need to be saved before starting the next one.`,
+      });
+      return;
+    }
+
+    // Prefetch guard + fresh episode via the same createEpisode helper
+    // startNewVilla uses. Unlike startNewVilla we do NOT rotate the
+    // session UUID or reset seasonCounter — the whole point is to stay
+    // on the same session and let Episode.number climb.
+    resetPrefetchState();
+    const newEpisode = createEpisode();
+    set((s) => ({
+      cast: newEpisode.castPool,
+      episode: newEpisode,
+      currentSceneId: null,
+      currentLineIndex: 0,
+      lastError: null,
+      generationProgress: null,
+      sceneQueue: [],
+      prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
+      viewerMessages: [],
+      ui: { ...s.ui, isPaused: false },
+    }));
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
   },
 

@@ -374,6 +374,31 @@ export interface LlmBatchSceneResponse {
   scenes: LlmSceneResponse[];
 }
 
+// Snapshot of a completed season persisted to the
+// `villaSessions/{id}/seasons/{number}` subcollection when the player
+// starts the next season in the same session. Preserves everything the
+// UI would need to replay or summarize a past season — scenes, final
+// relationships, winners, elimination order — so future seasons can
+// reference "Season 3 winners" without the session doc growing
+// unboundedly. Separate from SeasonExport, which is the JSON a user
+// downloads for offline training data.
+export interface SeasonArchive {
+  sessionId: string;
+  seasonNumber: number;
+  archivedAt: number;
+  episodeId: string;
+  episodeTitle: string;
+  seasonTheme: string;
+  castPool: Agent[];
+  bombshellPool: Agent[];
+  winnerCouple: Couple | null;
+  eliminatedIds: string[];
+  scenes: Scene[];
+  finalRelationships: Relationship[];
+  finalViewerSentiment: Record<string, number>;
+  dramaScores: Record<string, number>;
+}
+
 export interface SeasonExport {
   version: 1 | 2;
   exportedAt: number;

@@ -105,6 +105,32 @@ export async function saveTrainingData(
   return request("/api/training", { data });
 }
 
+// Archive a finished season into the session's `seasons` subcollection on
+// the server. Called by startNextSeason before resetting the live episode
+// so past scenes + final relationships + winners stay accessible for
+// replay / summary UI without inflating every session-doc read.
+export async function archiveSeason(
+  sessionId: string,
+  seasonNumber: number,
+  archive: unknown,
+): Promise<{ success: boolean; seasonNumber: number }> {
+  return request(`/api/session/${sessionId}/seasons/${seasonNumber}`, archive);
+}
+
+export async function listPastSeasons(sessionId: string): Promise<{
+  sessionId: string;
+  seasons: Array<{
+    seasonNumber: number;
+    episodeTitle: string | null;
+    seasonTheme: string | null;
+    winnerCouple: unknown;
+    archivedAt: unknown;
+    sceneCount: number;
+  }>;
+}> {
+  return request(`/api/session/${sessionId}/seasons`);
+}
+
 export async function fetchTrainingArchive(
   limit = 50,
 ): Promise<{ entries: unknown[] }> {
