@@ -45,6 +45,18 @@ export type RelationshipMetric =
   | "jealousy"
   | "compatibility";
 
+// Popularity-band thresholds consumed by BOTH the client gravity engine and
+// the server prompt builder. Single source of truth — if either side moves
+// these, the VIEWER VIBES block would disagree with the gravity engine's
+// dead-band logic. Imports on both sides so drift is impossible.
+export const POPULARITY_FAVORITE_THRESHOLD = 70;
+export const POPULARITY_TARGET_THRESHOLD = 30;
+// Tighter bands used only for the named "gravity_threshold" dramatic-beat
+// events — fires once per direction per agent per season when an agent
+// truly locks into favorite/target status.
+export const POPULARITY_UP_THRESHOLD = 80;
+export const POPULARITY_DOWN_THRESHOLD = 20;
+
 export interface Agent {
   id: string;
   name: string;

@@ -23,19 +23,20 @@ import type {
   SystemEvent,
   ViewerMessage,
 } from "@villa-ai/shared";
+import {
+  POPULARITY_FAVORITE_THRESHOLD,
+  POPULARITY_TARGET_THRESHOLD,
+  POPULARITY_UP_THRESHOLD,
+  POPULARITY_DOWN_THRESHOLD,
+} from "@villa-ai/shared";
 
-// Popularity band thresholds. Sentiment ≥ FAVORITE_THRESHOLD pulls other cast
-// members toward the agent (+trust, +attraction); ≤ TARGET_THRESHOLD pushes
-// them away (-trust). The dead band in the middle keeps the loop quiet when
-// viewers have no strong feelings yet.
-export const FAVORITE_THRESHOLD = 70;
-export const TARGET_THRESHOLD = 30;
-
-// Threshold crossings fire the big named narrative beats. Tighter than the
-// drip bands so the beat only lands when sentiment really locks in (>= 80 or
-// <= 20), not the moment someone hits 71.
-export const UP_THRESHOLD = 80;
-export const DOWN_THRESHOLD = 20;
+// Local aliases keep the existing call sites terse; the single source of
+// truth lives in shared/types.ts so the client gravity engine and the
+// server prompt builder can't drift.
+export const FAVORITE_THRESHOLD = POPULARITY_FAVORITE_THRESHOLD;
+export const TARGET_THRESHOLD = POPULARITY_TARGET_THRESHOLD;
+export const UP_THRESHOLD = POPULARITY_UP_THRESHOLD;
+export const DOWN_THRESHOLD = POPULARITY_DOWN_THRESHOLD;
 
 // Per-scene drip magnitudes. Small enough to be a rounding-error nudge that
 // only matters over 5–10 scenes of consistent sentiment — so popularity never
@@ -227,7 +228,6 @@ export function applySocialGravity(
   const nextCumulative = new Map(seasonCumulative);
   const newCrossings: string[] = [];
   const crossedSet = new Set(crossedThresholds);
-  let eventCounter = 0;
 
   const activeIds = activeCast.map((a) => a.id);
   const relationshipSet = new Set(
@@ -254,7 +254,7 @@ export function applySocialGravity(
       !crossedSet.has(upKey)
     ) {
       events.push({
-        id: `grav_th_${Date.now()}_${eventCounter++}`,
+        id: crypto.randomUUID(),
         type: "gravity_threshold",
         fromId: agent.id, // self-referential; label carries the meaning
         toId: agent.id,
@@ -268,7 +268,7 @@ export function applySocialGravity(
         if (otherId === agent.id) continue;
         if (!relationshipSet.has(pairKey(otherId, agent.id))) continue;
         events.push({
-          id: `grav_th_${Date.now()}_${eventCounter++}`,
+          id: crypto.randomUUID(),
           type: "gravity_threshold",
           fromId: otherId,
           toId: agent.id,
@@ -287,7 +287,7 @@ export function applySocialGravity(
       !crossedSet.has(downKey)
     ) {
       events.push({
-        id: `grav_th_${Date.now()}_${eventCounter++}`,
+        id: crypto.randomUUID(),
         type: "gravity_threshold",
         fromId: agent.id,
         toId: agent.id,
@@ -299,7 +299,7 @@ export function applySocialGravity(
         if (otherId === agent.id) continue;
         if (!relationshipSet.has(pairKey(otherId, agent.id))) continue;
         events.push({
-          id: `grav_th_${Date.now()}_${eventCounter++}`,
+          id: crypto.randomUUID(),
           type: "gravity_threshold",
           fromId: otherId,
           toId: agent.id,
@@ -332,7 +332,6 @@ export function applySocialGravity(
           DRIP_TRUST,
           "trust",
           `drawn toward ${agent.name}`,
-          () => eventCounter++,
         );
         pushDrip(
           events,
@@ -342,7 +341,6 @@ export function applySocialGravity(
           DRIP_ATTRACTION,
           "attraction",
           `warming to ${agent.name}`,
-          () => eventCounter++,
         );
       }
     } else if (cur <= TARGET_THRESHOLD) {
@@ -357,7 +355,6 @@ export function applySocialGravity(
           -DRIP_NEGATIVE_TRUST,
           "trust",
           `cooling on ${agent.name}`,
-          () => eventCounter++,
         );
       }
     }
@@ -381,14 +378,17 @@ function pushDrip(
   baseDelta: number,
   metric: Extract<"trust" | "attraction", "trust" | "attraction">,
   label: string,
-  tick: () => number,
 ) {
+  // `cumulative` tracks the monotonic absolute pull applied to this pair so
+  // saturation reflects "how much work has been done on this relationship"
+  // regardless of direction. Storing a signed sum would let opposing drips
+  // cancel out — a pair that got +10 then drifted to -5 would read as
+  // cumulative=5 and re-enable full-strength drips, which is not the intent.
   const key = `${pairKey(fromId, toId)}|${metric}`;
   const prior = cumulative.get(key) ?? 0;
-  const effective =
-    Math.abs(prior) >= SATURATION_CAP ? baseDelta * 0.5 : baseDelta;
+  const effective = prior >= SATURATION_CAP ? baseDelta * 0.5 : baseDelta;
   events.push({
-    id: `grav_drip_${Date.now()}_${tick()}`,
+    id: crypto.randomUUID(),
     type: "gravity_shift",
     fromId,
     toId,
@@ -396,7 +396,7 @@ function pushDrip(
     label,
     metric,
   });
-  cumulative.set(key, prior + effective);
+  cumulative.set(key, prior + Math.abs(effective));
 }
 
 // Builds the popularity-intel block injected into the next scene's LLM

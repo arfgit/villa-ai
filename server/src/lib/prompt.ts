@@ -4,6 +4,10 @@ import type {
   PlannedBeat,
   SceneContext,
 } from "@villa-ai/shared";
+import {
+  POPULARITY_FAVORITE_THRESHOLD,
+  POPULARITY_TARGET_THRESHOLD,
+} from "@villa-ai/shared";
 import { SCENE_LABELS } from "./environments.js";
 import { buildPastSeasonsPromptBlock } from "./trainingData.js";
 import { VOICE_EXAMPLES } from "./castGenerator.js";
@@ -29,11 +33,8 @@ function clip(value: string | undefined, maxLen: number): string {
   return flat.length > maxLen ? flat.slice(0, maxLen - 1) + "…" : flat;
 }
 
-// Popularity-band thresholds mirror social-gravity.ts on the client. If either
-// side moves these, the LLM prompt will disagree with the gravity engine and
-// the loop starts lying. Keep them in sync.
-const PROMPT_FAVORITE_THRESHOLD = 70;
-const PROMPT_TARGET_THRESHOLD = 30;
+// Popularity-band thresholds are imported from shared/types.ts — same source
+// the client gravity engine uses. No local duplication, no drift risk.
 
 // Renders the "VIEWER VIBES" block for the prompt, listing favorites (>= 70)
 // and targets (<= 30). Returns null when sentiment is missing entirely or
@@ -50,9 +51,9 @@ function buildPopularityBlockForPrompt(
     const value = sentiment[agent.id];
     if (typeof value !== "number" || !Number.isFinite(value)) continue;
     const name = clip(agent.name, 60);
-    if (value >= PROMPT_FAVORITE_THRESHOLD) {
+    if (value >= POPULARITY_FAVORITE_THRESHOLD) {
       favorites.push(`${name} ${Math.round(value)}`);
-    } else if (value <= PROMPT_TARGET_THRESHOLD) {
+    } else if (value <= POPULARITY_TARGET_THRESHOLD) {
       targets.push(`${name} ${Math.round(value)}`);
     }
   }
@@ -298,14 +299,22 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
   // already says "every contestant must speak" in English — this is the
   // enforcement version.
   const requiredSpeakers: string[] = (() => {
-    if (isIntroduction) return allCast.map((a) => a.id);
+    if (isIntroduction) {
+      // Host MCs the opener — include them so the LLM can't silently drop
+      // the host's welcome monologue.
+      return host
+        ? [...allCast.map((a) => a.id), host.id]
+        : allCast.map((a) => a.id);
+    }
     if (forcedParticipants) return forcedParticipants;
     // Ensemble ceremony scenes need EVERY active cast member to get a line
     // even when forcedParticipants isn't explicitly set. For recouples and
     // the grand finale, silently skipping half the cast (what happened
     // before this fallback) reads as "the villa has half as many people
     // as it actually does". Challenge/minigame/bombshell have similar
-    // ensemble expectations.
+    // ensemble expectations, and all of them need the host — the host
+    // runs the ceremony, announces the rules, names the pairings. Without
+    // the host in the required list, the LLM drops the host entirely.
     if (
       sceneType === "recouple" ||
       sceneType === "grand_finale" ||
@@ -313,7 +322,8 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
       sceneType === "minigame" ||
       sceneType === "bombshell"
     ) {
-      return allCast.map((a) => a.id);
+      const ids = allCast.map((a) => a.id);
+      return host ? [...ids, host.id] : ids;
     }
     return [];
   })();
@@ -445,6 +455,17 @@ export async function buildScenePrompt(args: BuildArgs): Promise<string> {
     participantsClause = `MUST include ALL ${cast.length} active contestants. Existing couples compete together (${coupleDesc}); singles are paired ad hoc for the game only (no state change). You MUST include at least one dialogue line from EVERY contestant. Required speakers: ${allNames}. The host narrates the rules at the start.`;
   } else if (sceneType === "challenge") {
     participantsClause = `MUST include ALL ${cast.length} active contestants. Every islander in the villa competes in this challenge — no one sits out. The host briefly narrates the rules at the start.`;
+  } else if (sceneType === "recouple") {
+    // Recoupling ceremonies — including the First Coupling — require the
+    // whole villa on stage. The host runs the ceremony, and every active
+    // contestant must make a choice on camera. Before this branch existed,
+    // the fallback clause told the LLM to pick 3-5 contestants, which
+    // caused "first coupling missing cast + silent host" bugs.
+    const allNames = cast.map((c) => c.name).join(", ");
+    participantsClause = `MUST include ALL ${cast.length} active contestants AND the host. The host opens and closes the ceremony. EVERY contestant must speak at least one line — they are either declaring their choice, being chosen, or reacting on camera. Required speakers: ${allNames}.`;
+  } else if (sceneType === "grand_finale") {
+    const allNames = cast.map((c) => c.name).join(", ");
+    participantsClause = `MUST include ALL ${cast.length} remaining contestants AND the host. The host leads the finale announcement. Every remaining contestant speaks. Required speakers: ${allNames}.`;
   } else if (forcedParticipants) {
     participantsClause = `MUST include exactly: ${forcedParticipants.join(", ")}`;
   } else {
