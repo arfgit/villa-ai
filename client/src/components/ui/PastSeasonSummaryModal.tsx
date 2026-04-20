@@ -84,7 +84,7 @@ export default function PastSeasonSummaryModal() {
             <button
               onClick={close}
               aria-label="Close"
-              className="text-villa-dim hover:text-villa-pink text-xs focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink px-1"
+              className="text-villa-dim text-xs px-1 transition-colors duration-200 ease-in hover:text-villa-pink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
             >
               ✕
             </button>
@@ -233,7 +233,7 @@ export default function PastSeasonSummaryModal() {
             <div className="flex items-center gap-2">
               <button
                 onClick={close}
-                className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim hover:border-villa-dim px-3 py-1.5"
+                className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim px-3 py-1.5 transition-colors duration-200 ease-in hover:border-villa-pink hover:text-villa-pink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
               >
                 close
               </button>
@@ -243,7 +243,7 @@ export default function PastSeasonSummaryModal() {
               >
                 <button
                   onClick={startViewer}
-                  className="text-[10px] uppercase tracking-widest border border-villa-pink text-villa-pink hover:bg-villa-pink hover:text-villa-bg px-3 py-1.5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
+                  className="text-[10px] uppercase tracking-widest border border-villa-pink text-villa-pink px-3 py-1.5 transition-colors duration-200 ease-in hover:bg-villa-pink hover:text-villa-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
                 >
                   ▶ Watch Season {archive.seasonNumber}
                 </button>

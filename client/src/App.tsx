@@ -22,7 +22,7 @@ export default function App() {
   const toggleCast = useVillaStore((s) => s.toggleCast);
   const toggleRelationships = useVillaStore((s) => s.toggleRelationships);
   const setRelationshipMetric = useVillaStore((s) => s.setRelationshipMetric);
-  const viewerMessages = useVillaStore((s) => s.viewerMessages);
+  const viewerMessages = useVillaStore((s) => s.episode.viewerMessages);
 
   const bp = useBreakpoint();
   const [isRestoring, setIsRestoring] = useState(true);

@@ -146,7 +146,6 @@ interface VillaState {
   generationProgress: { percent: number; label: string } | null;
   sceneQueue: QueuedScene[];
   prefetchMetrics: PrefetchMetrics;
-  viewerMessages: ViewerMessage[];
   ui: UiState;
 
   pastSeasons: Array<{
@@ -357,6 +356,7 @@ function createEpisode(): Episode {
     viewerSentiment: {},
     crossedThresholds: [],
     gravityCumulative: {},
+    viewerMessages: [],
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -1002,7 +1002,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   generationProgress: null,
   sceneQueue: [],
   prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
-  viewerMessages: [],
   ui: { ...DEFAULT_UI },
 
   pastSeasons: [],
@@ -1110,7 +1109,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       generationProgress: null,
       sceneQueue: [],
       prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
-      viewerMessages: [],
       ui: { ...s.ui, isPaused: false },
     }));
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
@@ -1152,7 +1150,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       finalRelationships: prev.episode.relationships,
       finalViewerSentiment: prev.episode.viewerSentiment,
       dramaScores: prev.episode.dramaScores,
-      viewerMessages: prev.viewerMessages,
+      viewerMessages: prev.episode.viewerMessages,
     };
     try {
       await archiveSeasonToServer(
@@ -1180,7 +1178,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       generationProgress: null,
       sceneQueue: [],
       prefetchMetrics: { ...INITIAL_PREFETCH_METRICS },
-      viewerMessages: [],
       ui: { ...s.ui, isPaused: false },
     }));
     syncToServer({ episode: newEpisode, cast: newEpisode.castPool });
@@ -2582,7 +2579,6 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           : postEp.scenes;
 
       set((s) => ({
-        viewerMessages: [...s.viewerMessages, ...newViewerMessages],
         episode: {
           ...s.episode,
           scenes: updatedScenes,
@@ -2593,6 +2589,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
             ...gravityResult.crossedThresholds,
           ],
           gravityCumulative: Object.fromEntries(gravityResult.nextCumulative),
+          viewerMessages: [...s.episode.viewerMessages, ...newViewerMessages],
         },
       }));
 
@@ -2688,6 +2685,10 @@ function migrateEpisode(episode: Episode): void {
       episode as unknown as { gravityCumulative: Record<string, number> }
     ).gravityCumulative = {};
   }
+  if (!Array.isArray(episode.viewerMessages)) {
+    (episode as unknown as { viewerMessages: ViewerMessage[] }).viewerMessages =
+      [];
+  }
 }
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -2730,6 +2731,18 @@ function sanitizeCast(raw: unknown): Agent[] | null {
   return out.length > 0 ? out : null;
 }
 
+function isStringArray(v: unknown): v is string[] {
+  return Array.isArray(v) && v.every((x) => typeof x === "string");
+}
+
+function isNumberRecord(v: unknown): v is Record<string, number> {
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  for (const val of Object.values(v as Record<string, unknown>)) {
+    if (typeof val !== "number" || !Number.isFinite(val)) return false;
+  }
+  return true;
+}
+
 function sanitizeEpisode(raw: unknown): Episode | null {
   if (!raw || typeof raw !== "object") return null;
   const e = raw as Record<string, unknown>;
@@ -2739,6 +2752,28 @@ function sanitizeEpisode(raw: unknown): Episode | null {
     !Array.isArray(e.couples)
   ) {
     return null;
+  }
+  if (
+    e.crossedThresholds !== undefined &&
+    !isStringArray(e.crossedThresholds)
+  ) {
+    console.warn("[restore] crossedThresholds malformed, resetting");
+    e.crossedThresholds = [];
+  }
+  if (
+    e.gravityCumulative !== undefined &&
+    !isNumberRecord(e.gravityCumulative)
+  ) {
+    console.warn("[restore] gravityCumulative malformed, resetting");
+    e.gravityCumulative = {};
+  }
+  if (e.viewerSentiment !== undefined && !isNumberRecord(e.viewerSentiment)) {
+    console.warn("[restore] viewerSentiment malformed, resetting");
+    e.viewerSentiment = {};
+  }
+  if (e.viewerMessages !== undefined && !Array.isArray(e.viewerMessages)) {
+    console.warn("[restore] viewerMessages malformed, resetting");
+    e.viewerMessages = [];
   }
   return raw as Episode;
 }
@@ -2817,7 +2852,6 @@ export async function loadSessionByKey(sessionId: string): Promise<boolean> {
       lastError: null,
       generationProgress: null,
       sceneQueue: [],
-      viewerMessages: [],
     });
 
     refreshTrainingCache().catch(() => {});

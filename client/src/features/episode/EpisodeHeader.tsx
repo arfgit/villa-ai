@@ -96,7 +96,7 @@ export default function EpisodeHeader({ onSessionClick }: Props) {
             aria-expanded={pickerOpen}
             aria-haspopup="menu"
             className={clsx(
-              "text-[10px] uppercase tracking-widest px-2 py-0.5 border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink",
+              "text-[10px] uppercase tracking-widest px-2 py-0.5 border transition-colors duration-200 ease-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink",
               hasPastSeasons
                 ? "border-villa-dim/40 text-villa-dim hover:border-villa-pink hover:text-villa-pink cursor-pointer"
                 : "border-transparent text-villa-dim cursor-default",
@@ -135,7 +135,7 @@ export default function EpisodeHeader({ onSessionClick }: Props) {
                         setPickerOpen(false);
                         await openPastSeasonSummary(s.seasonNumber);
                       }}
-                      className="w-full text-left px-3 py-2 text-[11px] border-b border-villa-pink/10 hover:bg-villa-pink/5 focus-visible:outline-none focus-visible:bg-villa-pink/10"
+                      className="w-full text-left px-3 py-2 text-[11px] border-b border-villa-pink/10 transition-colors duration-200 ease-in hover:bg-villa-pink/10 focus-visible:outline-none focus-visible:bg-villa-pink/10"
                     >
                       <div className="flex items-center justify-between gap-2">
                         <span className="text-villa-ink">
@@ -165,7 +165,7 @@ export default function EpisodeHeader({ onSessionClick }: Props) {
         >
           <button
             onClick={onSessionClick}
-            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim hover:border-villa-aqua hover:text-villa-aqua px-2 py-0.5 shrink-0"
+            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim px-2 py-0.5 shrink-0 transition-colors duration-200 ease-in hover:border-villa-aqua hover:text-villa-aqua focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-aqua"
           >
             session
           </button>
@@ -189,10 +189,10 @@ export default function EpisodeHeader({ onSessionClick }: Props) {
               data-scene-id={scene.id}
               onClick={() => selectScene(scene.id)}
               className={clsx(
-                "px-2 py-0.5 text-[10px] border whitespace-nowrap shrink-0",
+                "px-2 py-0.5 text-[10px] border whitespace-nowrap shrink-0 transition-colors duration-200 ease-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink",
                 scene.id === currentSceneId
                   ? "border-villa-pink text-villa-pink"
-                  : "border-villa-dim/40 text-villa-dim hover:border-villa-dim",
+                  : "border-villa-dim/40 text-villa-dim hover:border-villa-pink hover:text-villa-pink",
               )}
             >
               {i + 1}. {label.emoji} {label.title}
