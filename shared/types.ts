@@ -370,6 +370,7 @@ export interface SeasonArchive {
   finalRelationships: Relationship[];
   finalViewerSentiment: Record<string, number>;
   dramaScores: Record<string, number>;
+  viewerMessages?: ViewerMessage[];
 }
 
 export interface SeasonExport {

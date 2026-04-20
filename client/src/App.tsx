@@ -10,6 +10,8 @@ import CastList from "@/features/agents/CastList";
 import RelationshipMatrix from "@/features/relationships/RelationshipMatrix";
 import Drawer from "@/components/ui/Drawer";
 import SessionModal from "@/components/ui/SessionModal";
+import PastSeasonSummaryModal from "@/components/ui/PastSeasonSummaryModal";
+import PastSeasonViewer from "@/components/ui/PastSeasonViewer";
 import ViewerChat from "@/features/viewer/ViewerChat";
 
 export default function App() {
@@ -42,13 +44,11 @@ export default function App() {
       : undefined;
 
   useEffect(() => {
-
     (async () => {
       try {
         await ensureSessionId();
         await restoreFromServer();
       } catch (err) {
-
         const msg = err instanceof Error ? err.message : String(err);
         console.error("[boot] session resolution failed:", msg);
         setBootError(msg);
@@ -183,6 +183,9 @@ export default function App() {
         open={sessionModalOpen}
         onClose={() => setSessionModalOpen(false)}
       />
+
+      <PastSeasonSummaryModal />
+      <PastSeasonViewer />
     </div>
   );
 }

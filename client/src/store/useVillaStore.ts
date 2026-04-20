@@ -87,6 +87,8 @@ import {
   loadSessionById,
   saveTrainingData,
   archiveSeason as archiveSeasonToServer,
+  listPastSeasons as listPastSeasonsFromServer,
+  fetchPastSeason as fetchPastSeasonFromServer,
 } from "@/lib/api";
 import {
   SESSION_KEY,
@@ -146,6 +148,22 @@ interface VillaState {
   prefetchMetrics: PrefetchMetrics;
   viewerMessages: ViewerMessage[];
   ui: UiState;
+
+  pastSeasons: Array<{
+    seasonNumber: number;
+    episodeTitle: string | null;
+    seasonTheme: string | null;
+    winnerCouple: unknown;
+    sceneCount: number;
+  }>;
+  pastSeasonsLoading: boolean;
+  pastSeasonView: SeasonArchive | null;
+  pastSeasonViewerOpen: boolean;
+  refreshPastSeasons: () => Promise<void>;
+  openPastSeasonSummary: (seasonNumber: number) => Promise<void>;
+  closePastSeasonSummary: () => void;
+  startPastSeasonViewer: () => void;
+  closePastSeasonViewer: () => void;
 
   startNewVilla: () => Promise<void>;
 
@@ -987,6 +1005,68 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
   viewerMessages: [],
   ui: { ...DEFAULT_UI },
 
+  pastSeasons: [],
+  pastSeasonsLoading: false,
+  pastSeasonView: null,
+  pastSeasonViewerOpen: false,
+
+  refreshPastSeasons: async () => {
+    const sessionId = getSessionId();
+    if (!sessionId) return;
+    set({ pastSeasonsLoading: true });
+    try {
+      const data = await listPastSeasonsFromServer(sessionId);
+      set({
+        pastSeasons: data.seasons.map((s) => ({
+          seasonNumber: s.seasonNumber,
+          episodeTitle: s.episodeTitle,
+          seasonTheme: s.seasonTheme,
+          winnerCouple: s.winnerCouple,
+          sceneCount: s.sceneCount,
+        })),
+        pastSeasonsLoading: false,
+      });
+    } catch (err) {
+      console.warn(
+        "[past-seasons] list failed:",
+        err instanceof Error ? err.message : err,
+      );
+      set({ pastSeasonsLoading: false });
+    }
+  },
+
+  openPastSeasonSummary: async (seasonNumber: number) => {
+    const sessionId = getSessionId();
+    if (!sessionId) return;
+    try {
+      const data = (await fetchPastSeasonFromServer(
+        sessionId,
+        seasonNumber,
+      )) as SeasonArchive;
+      set({ pastSeasonView: data, pastSeasonViewerOpen: false });
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error("[past-seasons] fetch failed:", msg);
+      set({
+        lastError: `Could not load Season ${seasonNumber} (${msg}).`,
+      });
+    }
+  },
+
+  closePastSeasonSummary: () => {
+    set({ pastSeasonView: null, pastSeasonViewerOpen: false });
+  },
+
+  startPastSeasonViewer: () => {
+    const { pastSeasonView } = get();
+    if (!pastSeasonView) return;
+    set({ pastSeasonViewerOpen: true });
+  },
+
+  closePastSeasonViewer: () => {
+    set({ pastSeasonViewerOpen: false });
+  },
+
   startNewVilla: async () => {
     const prev = get();
     if (prev.isGenerating) {
@@ -1072,6 +1152,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       finalRelationships: prev.episode.relationships,
       finalViewerSentiment: prev.episode.viewerSentiment,
       dramaScores: prev.episode.dramaScores,
+      viewerMessages: prev.viewerMessages,
     };
     try {
       await archiveSeasonToServer(

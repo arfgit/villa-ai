@@ -109,6 +109,13 @@ export async function listPastSeasons(sessionId: string): Promise<{
   return request(`/api/session/${sessionId}/seasons`);
 }
 
+export async function fetchPastSeason(
+  sessionId: string,
+  seasonNumber: number,
+): Promise<unknown> {
+  return request(`/api/session/${sessionId}/seasons/${seasonNumber}`);
+}
+
 export async function fetchTrainingArchive(
   limit = 50,
 ): Promise<{ entries: unknown[] }> {
