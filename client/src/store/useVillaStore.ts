@@ -304,16 +304,26 @@ function createEpisode(): Episode {
   const initialBrains: Record<string, AgentBrain> = {};
   const wisdomArchive = loadWisdomArchive();
   const metaWisdom = loadMetaWisdom();
+  // Cap seeded meta-wisdom importance at 5 (was up to 10) and reset its
+  // sceneNumber to 0 so the recency decay in memory.ts is predictable.
+  // Without these adjustments, high-importance prior-season reflections
+  // flood retrieval for the first ~10 scenes and bury fresh in-season
+  // observations. In-season moments routinely hit importance 7-9, so
+  // capping meta at 5 lets this season's actual events win the memory
+  // slot once they pile up. Seed count dropped from 3 → 2 per agent for
+  // the same reason.
   for (const agent of castPool) {
     initialLocations[agent.id] = "bedroom";
     const archivedWisdom = wisdomArchive.get(agent.id);
     const seedMemories = archivedWisdom
-      ? [...archivedWisdom]
+      ? archivedWisdom.map((m) => ({ ...m, sceneNumber: 0 }))
       : metaWisdom.length > 0
-        ? pickRandomN(metaWisdom, Math.min(3, metaWisdom.length)).map((m) => ({
+        ? pickRandomN(metaWisdom, Math.min(2, metaWisdom.length)).map((m) => ({
             ...m,
             agentId: agent.id,
             id: `${m.id}-${agent.id}`,
+            importance: Math.min(m.importance, 5),
+            sceneNumber: 0,
           }))
         : [];
     initialBrains[agent.id] = {
@@ -357,6 +367,7 @@ function createEpisode(): Episode {
     crossedThresholds: [],
     gravityCumulative: {},
     viewerMessages: [],
+    eliminationReasons: {},
     createdAt: Date.now(),
     updatedAt: Date.now(),
   };
@@ -1151,6 +1162,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
       finalViewerSentiment: prev.episode.viewerSentiment,
       dramaScores: prev.episode.dramaScores,
       viewerMessages: prev.episode.viewerMessages,
+      eliminationReasons: prev.episode.eliminationReasons,
     };
     try {
       await archiveSeasonToServer(
@@ -2494,6 +2506,16 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
         };
       }
 
+      const nextEliminationReasons: Record<string, string> = {
+        ...fresh.episode.eliminationReasons,
+      };
+      if (ceremonyElim?.reason) {
+        for (const id of ceremonyElim.eliminatedIds) {
+          if (!nextEliminationReasons[id])
+            nextEliminationReasons[id] = ceremonyElim.reason;
+        }
+      }
+
       set({
         cast: dynamicCast,
         episode: {
@@ -2504,6 +2526,7 @@ export const useVillaStore = create<VillaState>()((set, get) => ({
           emotions,
           couples: finalCouples,
           eliminatedIds: elim.eliminatedIds,
+          eliminationReasons: nextEliminationReasons,
           winnerCouple: elim.winnerCouple,
           locations: nextLocations,
           brains: nextBrains,
@@ -2689,6 +2712,15 @@ function migrateEpisode(episode: Episode): void {
     (episode as unknown as { viewerMessages: ViewerMessage[] }).viewerMessages =
       [];
   }
+  if (
+    !episode.eliminationReasons ||
+    typeof episode.eliminationReasons !== "object" ||
+    Array.isArray(episode.eliminationReasons)
+  ) {
+    (
+      episode as unknown as { eliminationReasons: Record<string, string> }
+    ).eliminationReasons = {};
+  }
 }
 
 const SAFE_SESSION_ID = /^[A-Za-z0-9_-]{1,128}$/;
@@ -2774,6 +2806,15 @@ function sanitizeEpisode(raw: unknown): Episode | null {
   if (e.viewerMessages !== undefined && !Array.isArray(e.viewerMessages)) {
     console.warn("[restore] viewerMessages malformed, resetting");
     e.viewerMessages = [];
+  }
+  if (
+    e.eliminationReasons !== undefined &&
+    (typeof e.eliminationReasons !== "object" ||
+      Array.isArray(e.eliminationReasons) ||
+      e.eliminationReasons === null)
+  ) {
+    console.warn("[restore] eliminationReasons malformed, resetting");
+    e.eliminationReasons = {};
   }
   return raw as Episode;
 }

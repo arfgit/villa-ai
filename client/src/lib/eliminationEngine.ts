@@ -253,9 +253,11 @@ export function producerIntervention(
   }
 
   const name = active.find((a) => a.id === dumpedId)?.name ?? dumpedId;
+  const reason = `${name} faded into the background — the producers sensed the audience tuning out whenever they were on screen and called time.`;
   return {
     eliminatedIds: [dumpedId],
     type: "producer_intervention",
+    reason,
     narrative: `The producers have decided to shake things up... ${name}, your time in the villa is over.`,
   };
 }

@@ -280,6 +280,7 @@ export interface Episode {
 
   gravityCumulative: Record<string, number>;
   viewerMessages: ViewerMessage[];
+  eliminationReasons: Record<string, string>;
   createdAt: number;
   updatedAt: number;
 }
@@ -372,6 +373,7 @@ export interface SeasonArchive {
   finalViewerSentiment: Record<string, number>;
   dramaScores: Record<string, number>;
   viewerMessages?: ViewerMessage[];
+  eliminationReasons?: Record<string, string>;
 }
 
 export interface SeasonExport {

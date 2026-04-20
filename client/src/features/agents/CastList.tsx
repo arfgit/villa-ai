@@ -21,6 +21,7 @@ interface Props {
 
   recoupleOrdinal?: number;
   brains: Record<string, AgentBrain>;
+  eliminationReasons?: Record<string, string>;
 }
 
 export default function CastList({
@@ -33,6 +34,7 @@ export default function CastList({
   currentSceneType,
   recoupleOrdinal,
   brains,
+  eliminationReasons = {},
 }: Props) {
   function getEmotion(id: string) {
     return emotions.find((e) => e.agentId === id)?.primary ?? "neutral";
@@ -243,8 +245,15 @@ export default function CastList({
                     {agent.archetype}
                   </div>
                   {eliminated ? (
-                    <div className="text-[9px] text-villa-love mt-0.5">
-                      ✗ dumped from villa
+                    <div className="mt-0.5 flex flex-col gap-0.5">
+                      <div className="text-[9px] text-villa-love">
+                        ✗ dumped from villa
+                      </div>
+                      {eliminationReasons[agent.id] && (
+                        <div className="text-[9px] text-villa-dim italic leading-snug">
+                          {eliminationReasons[agent.id]}
+                        </div>
+                      )}
                     </div>
                   ) : (
                     <>

@@ -116,6 +116,7 @@ export default function App() {
               currentSceneType={currentSceneType}
               recoupleOrdinal={recoupleOrdinal}
               brains={episode.brains}
+              eliminationReasons={episode.eliminationReasons}
             />
           </div>
           <div className="flex flex-col overflow-hidden">
@@ -160,6 +161,7 @@ export default function App() {
           locations={episode.locations}
           currentSceneType={currentSceneType}
           brains={episode.brains}
+          eliminationReasons={episode.eliminationReasons}
         />
       </Drawer>
 
