@@ -15,7 +15,7 @@ app.listen(PORT, () => {
   const provider = getProvider();
   let providerDetail: string;
   if (provider === "ollama") {
-    providerDetail = `${process.env.OLLAMA_HOST ?? "http://localhost:11434"} / ${process.env.OLLAMA_MODEL ?? "llama3.2"}`;
+    providerDetail = `${process.env.OLLAMA_HOST ?? "http://localhost:11434"} / ${process.env.OLLAMA_MODEL ?? "qwen3:32b"}`;
   } else if (provider === "anthropic") {
     const model = process.env.ANTHROPIC_MODEL ?? "claude-haiku-4-5";
     const hasKey = Boolean(process.env.ANTHROPIC_API_KEY);
@@ -44,7 +44,7 @@ app.listen(PORT, () => {
 
 async function probeOllamaParallelism(): Promise<void> {
   const host = process.env.OLLAMA_HOST ?? "http://localhost:11434";
-  const model = process.env.OLLAMA_MODEL ?? "llama3.2";
+  const model = process.env.OLLAMA_MODEL ?? "qwen3:32b";
 
   const probeNumCtx = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
 

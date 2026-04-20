@@ -7,7 +7,7 @@ import type {
 import { formatRewardTrajectory, sumRewards } from "./rewards";
 
 const DEFAULT_HOST = "/ollama";
-const DEFAULT_MODEL = "llama3.2";
+const DEFAULT_MODEL = "qwen3:32b";
 
 function getHost(): string {
   return (

@@ -13,12 +13,14 @@ Built as a TypeScript monorepo (`client` + `server` + `shared`) with Vite + Reac
 ```bash
 # Local-only (Ollama) — no API keys needed
 brew install ollama
-ollama pull llama3.2
+ollama pull qwen3:32b                 # ~19 GB, best quality-per-GB for this task
 OLLAMA_ORIGINS="*" ollama serve       # keep this running
 npm install
 cp .env.example .env                  # then edit if you want prod providers
 npm run dev                           # client + server together
 ```
+
+On 16 GB Macs pull `qwen3:14b` instead (smaller, lower quality). On 64 GB+ bump to `llama3.3:70b` for the closest-to-frontier local quality. See [LLM providers](#llm-providers) below.
 
 Open <http://localhost:5173> and click **start show**.
 
@@ -137,16 +139,20 @@ Get a key at <https://aistudio.google.com/app/apikey>. When `ANTHROPIC_API_KEY` 
 ```env
 LLM_PROVIDER=ollama
 OLLAMA_HOST=http://localhost:11434
-OLLAMA_MODEL=llama3.2
+OLLAMA_MODEL=qwen3:32b
 ```
 
-Recommended models:
+Recommended models (ordered by quality, pull with `ollama pull <name>`):
 
-| Model | Size | Notes |
-|---|---|---|
-| `llama3.2` | 2 GB | Default. Fast. Occasionally weak at structure. |
-| `qwen2.5:7b` | 4 GB | Best small-model JSON adherence. |
-| `qwen2.5:14b` | 9 GB | Closest to prod-cloud quality. |
+| Model | Weights | RAM needed | Notes |
+|---|---|---|---|
+| `llama3.3:70b-instruct` | ~40 GB | 64 GB+ | Closest to Claude / GPT-5 quality. Slower (~45 s / scene). |
+| `qwen3:72b` | ~42 GB | 64 GB+ | Same tier as Llama 70B, slightly better at playful prose. |
+| **`qwen3:32b`** *(default)* | ~19 GB | 32 GB+ | Best quality-per-GB on Ollama. JSON rock-solid, real dialogue voice. Scene gen ~20 s. |
+| `mistral-small-3.1:24b` | ~14 GB | 24 GB+ | Strong alternative if Qwen prose doesn't fit the vibe. |
+| `qwen3:14b` | ~9 GB | 16 GB | Compact. Meaningful step up from smaller models. |
+
+Why not `llama3.2`? It's a **3 B parameter** model (the default tag pulls the 3B variant). It can't reliably hold 8-agent dialogue + a JSON schema in context. Scenes come out with broken structure or flat voices. The 32B tier above is where quality becomes worth it.
 
 Ollama throughput — set BEFORE `ollama serve`:
 
@@ -262,7 +268,7 @@ Villa AI uses a share-by-URL auth model. There's no login — the session UUID s
 
 **`Could not reach Ollama`** — Ollama isn't running or CORS is blocking. Run `OLLAMA_ORIGINS="*" ollama serve` in a terminal, or `launchctl setenv OLLAMA_ORIGINS "*"` and restart the Ollama app.
 
-**`Ollama model not pulled`** — `ollama pull llama3.2` (or whichever model you've set in `.env`).
+**`Ollama model not pulled`** — `ollama pull qwen3:32b` (or whichever model you've set in `.env`).
 
 **`FREE TIER quota` / `429` on Gemini** — your API key's project isn't billed. Generate a new key under a billed project at <https://aistudio.google.com/app/apikey>.
 

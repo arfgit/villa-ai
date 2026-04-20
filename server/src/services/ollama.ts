@@ -6,7 +6,7 @@ import type {
 } from "@villa-ai/shared";
 
 const DEFAULT_HOST = "http://localhost:11434";
-const DEFAULT_MODEL = "llama3.2";
+const DEFAULT_MODEL = "qwen3:32b";
 
 const NUM_CTX = parseInt(process.env.OLLAMA_CLIENT_NUM_CTX ?? "8192", 10);
 
