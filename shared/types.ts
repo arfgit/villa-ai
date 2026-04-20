@@ -279,6 +279,7 @@ export interface Episode {
   crossedThresholds: string[];
 
   gravityCumulative: Record<string, number>;
+  viewerMessages: ViewerMessage[];
   createdAt: number;
   updatedAt: number;
 }

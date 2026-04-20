@@ -4,6 +4,7 @@ import { useVillaStore } from "@/store/useVillaStore";
 import AsciiStage from "@/features/scene/AsciiStage";
 import ChatBubbleFeed from "@/features/dialogue/ChatBubbleFeed";
 import SystemChip from "@/features/dialogue/SystemChip";
+import ViewerChat from "@/features/viewer/ViewerChat";
 import { HOST } from "@/data/host";
 import { getSceneLabel } from "@/data/environments";
 
@@ -78,18 +79,16 @@ export default function PastSeasonViewer() {
         <span className="text-sm text-villa-ink">
           Season {archive.seasonNumber}
         </span>
-        {archive.seasonTheme && (
-          <span className="hidden sm:inline text-[10px] text-villa-dim truncate max-w-[40ch]">
-            · {archive.seasonTheme}
-          </span>
-        )}
+        <span className="hidden md:inline text-[10px] text-villa-dim truncate max-w-[32ch]">
+          · {label.title}
+        </span>
         <div className="flex-1" />
         <div className="flex items-center gap-2">
           <button
             type="button"
             onClick={() => setSceneIdx((i) => Math.max(0, i - 1))}
             disabled={sceneIdx === 0}
-            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim hover:border-villa-pink hover:text-villa-pink px-2 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim px-2 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-200 ease-in hover:border-villa-pink hover:text-villa-pink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
           >
             ◀ prev
           </button>
@@ -100,7 +99,7 @@ export default function PastSeasonViewer() {
             type="button"
             onClick={() => setSceneIdx((i) => Math.min(i + 1, sceneCount - 1))}
             disabled={sceneIdx >= sceneCount - 1}
-            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim hover:border-villa-pink hover:text-villa-pink px-2 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed"
+            className="text-[10px] uppercase tracking-widest border border-villa-dim/40 text-villa-dim px-2 py-0.5 disabled:opacity-30 disabled:cursor-not-allowed transition-colors duration-200 ease-in hover:border-villa-pink hover:text-villa-pink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
           >
             next ▶
           </button>
@@ -111,7 +110,7 @@ export default function PastSeasonViewer() {
             closeViewer();
             closeSummary();
           }}
-          className="text-[10px] uppercase tracking-widest border border-villa-pink text-villa-pink hover:bg-villa-pink hover:text-villa-bg px-3 py-1 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
+          className="text-[10px] uppercase tracking-widest border border-villa-pink text-villa-pink px-3 py-1 transition-colors duration-200 ease-in hover:bg-villa-pink hover:text-villa-bg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink"
           aria-label="Exit history mode"
         >
           ✕ exit
@@ -132,10 +131,10 @@ export default function PastSeasonViewer() {
               key={s.id ?? i}
               onClick={() => setSceneIdx(i)}
               className={clsx(
-                "px-2 py-0.5 text-[10px] border whitespace-nowrap shrink-0",
+                "px-2 py-0.5 text-[10px] border whitespace-nowrap shrink-0 transition-colors duration-200 ease-in focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-villa-pink",
                 i === sceneIdx
                   ? "border-villa-pink text-villa-pink"
-                  : "border-villa-dim/40 text-villa-dim hover:border-villa-dim",
+                  : "border-villa-dim/40 text-villa-dim hover:border-villa-pink hover:text-villa-pink",
               )}
             >
               {i + 1}. {l.emoji} {l.title}
@@ -144,7 +143,7 @@ export default function PastSeasonViewer() {
         })}
       </div>
 
-      <div className="flex-1 flex flex-col gap-2 p-2 sm:p-3 overflow-y-auto scrollbar-thin">
+      <div className="flex-1 flex flex-col gap-3 p-2 sm:p-3 overflow-y-auto scrollbar-thin">
         <AsciiStage
           sceneType={scene.type}
           participants={participants}
@@ -165,32 +164,36 @@ export default function PastSeasonViewer() {
           />
         </div>
 
-        <div className="min-h-[60px] flex flex-col gap-2">
-          {scene.systemEvents.filter((e) => e.type !== "gravity_shift").length >
-            0 && (
-            <div className="flex flex-wrap gap-1.5">
-              {scene.systemEvents
-                .filter((event) => event.type !== "gravity_shift")
-                .map((event) => (
-                  <SystemChip key={event.id} event={event} />
-                ))}
-            </div>
-          )}
-          {scene.outcome && (
-            <div className="border border-villa-sun/40 bg-villa-sun/5 p-2 text-xs">
-              <span className="text-villa-sun uppercase tracking-wider">
-                [outcome]
-              </span>
-              <span className="text-villa-ink ml-2">{scene.outcome}</span>
-            </div>
-          )}
-        </div>
+        {scene.systemEvents.filter((e) => e.type !== "gravity_shift").length >
+          0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {scene.systemEvents
+              .filter((event) => event.type !== "gravity_shift")
+              .map((event) => (
+                <SystemChip key={event.id} event={event} />
+              ))}
+          </div>
+        )}
 
-        <div className="text-[9px] text-villa-dim pt-2">
-          Viewing a scene that aired in Season {archive.seasonNumber}. Nothing
-          you do here affects your current villa. Labeled{" "}
-          <span className="text-villa-sun">{label.title}</span>.
-        </div>
+        {scene.outcome && (
+          <section
+            aria-label="Scene outcome"
+            className="border border-villa-sun/60 border-l-4 bg-villa-bg-2 p-3 flex flex-col gap-1"
+          >
+            <span className="text-villa-sun uppercase tracking-wider text-[10px]">
+              [outcome]
+            </span>
+            <p className="text-villa-ink text-sm leading-relaxed whitespace-pre-wrap">
+              {scene.outcome}
+            </p>
+          </section>
+        )}
+
+        {archive.viewerMessages && archive.viewerMessages.length > 0 && (
+          <div className="h-[220px] shrink-0">
+            <ViewerChat messages={archive.viewerMessages} />
+          </div>
+        )}
       </div>
     </div>
   );
