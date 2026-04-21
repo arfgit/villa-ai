@@ -48,3 +48,5 @@ npm-debug.log*
 .claude/
 .serena/
 .gstack/
+CLAUDE.md
+AGENTS.md

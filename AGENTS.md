@@ -1,1 +1,0 @@
-/Users/ant/Projects/claude-code-fullstack-setup/CLAUDE.md
